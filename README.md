@@ -52,6 +52,7 @@ does not publish.
 | `api-url` | *(empty)* | Platform to announce to; empty means production |
 | `cli-version` | `auto` | Exact CLI version, or the SDK version this checkout resolves to |
 | `cache` | `true` | Cache the compiled CLI between runs |
+| `build` | `true` | Build and lint first; `false` publishes an artifact a previous job produced |
 | `check` | `true` | Warn about an outdated SDK or a manifest the shell has moved past |
 | `dry-run` | `false` | Build and package without pushing or announcing |
 | `summary` | `true` | Append a row to the run summary |

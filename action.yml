@@ -32,6 +32,12 @@ inputs:
   cache:
     description: Cache the Portaki CLI between runs.
     default: "true"
+  build:
+    description: >-
+      Build and lint before publishing. Set to `false` when a previous job already built the
+      module and handed the artifact over — the publication then pushes exactly what was
+      verified, instead of a second build nobody looked at.
+    default: "true"
   check:
     description: Warn about an outdated SDK or a manifest the shell has moved past.
     default: "true"
@@ -74,7 +80,8 @@ runs:
       # une publication, c'est une raison de la voir venir.
       run: portaki ci check
 
-    - shell: bash
+    - if: inputs.build == 'true'
+      shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
