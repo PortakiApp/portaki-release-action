@@ -1,8 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>PortakiApp/renovate-config",
-    "github>PortakiApp/renovate-config:no-required-checks"
+    "github>PortakiApp/renovate-config"
   ],
   "packageRules": [
     {
