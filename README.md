@@ -86,6 +86,21 @@ on `unrecognized subcommand` — raise the SDK your module resolves to, or pin `
 > `portaki ci sdk-version` does properly — so the step right after the install compares the two
 > and warns if they disagree. The duplication is guarded by an assertion, not by trust.
 
+## One publication at a time
+
+Two jobs publishing the same module at once overwrite the same OCI tag in turn, and the
+catalogue ends up referencing a digest the tag no longer carries. The CLI refuses to push a
+version the registry already holds, which covers a re-run — but two jobs starting together both
+look before either announces.
+
+That last case belongs to the workflow, so both examples set it:
+
+```yaml
+concurrency:
+  group: portaki-release-${{ matrix.module }}
+  cancel-in-progress: false     # queue, never interrupt a publication in flight
+```
+
 ## Permissions
 
 ```yaml

@@ -15,6 +15,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Deux publications simultanées du même module écrasent tour à tour le même tag OCI, et le
+    # catalogue finit par référencer un digest que le tag ne porte plus. On met en file plutôt
+    # que d'interrompre : une publication en cours doit aboutir.
+    concurrency:
+      group: portaki-release
+      cancel-in-progress: false
     # La liaison enregistrée au registre exige un environment sur le canal stable : c'est lui
     # qui porte les relecteurs obligatoires.
     environment: release

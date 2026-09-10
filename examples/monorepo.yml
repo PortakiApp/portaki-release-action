@@ -37,6 +37,13 @@ jobs:
       contents: read
       packages: write
       id-token: write
+    # Un seul job de publication par module à la fois. Deux qui poussent le même module en
+    # parallèle écrasent tour à tour le même tag OCI, et le catalogue finit par référencer un
+    # digest que le tag ne porte plus. `cancel-in-progress: false` : on met en file, on
+    # n'interrompt pas une publication en cours.
+    concurrency:
+      group: portaki-release-${{ matrix.module }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       max-parallel: 2
