@@ -1,39 +1,21 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
-    ":dependencyDashboard",
-    ":semanticCommits"
+    "github>PortakiApp/renovate-config",
+    "github>PortakiApp/renovate-config:no-required-checks"
   ],
-  "labels": ["dependencies"],
-  "timezone": "Europe/Paris",
-  "schedule": ["before 10am on monday"],
-  "prHourlyLimit": 1,
-  "prConcurrentLimit": 2,
-  "rebaseWhen": "behind-base-branch",
-  "osvVulnerabilityAlerts": true,
-  "vulnerabilityAlerts": {
-    "labels": ["dependencies", "security"],
-    "schedule": ["at any time"]
-  },
   "packageRules": [
     {
-      "description": "Les actions composees ici s'executent dans les workflows d'AUTRES depots, avec leurs droits. Une action tierce compromise ne casse pas ce depot, elle casse ceux qui l'appellent — d'ou le groupe hebdo plutot qu'une PR par action, et l'alerte de vulnerabilite a toute heure.",
-      "matchManagers": ["github-actions"],
-      "groupName": "GitHub Actions",
-      "schedule": ["before 10am on monday"]
-    },
-    {
-      "description": "Une reference interne : `PortakiApp/portaki-release-action/install@v1` pointe ce depot lui-meme. La faire monter par un robot ferait tourner l'action sur une version d'elle-meme que personne n'a publiee.",
+      "description": "`PortakiApp/portaki-release-action/install@v1` pointe ce depot lui-meme. Un robot qui la ferait monter ferait tourner l'action contre une version d'elle-meme que personne n'a publiee.",
       "matchManagers": ["github-actions"],
       "matchPackageNames": ["PortakiApp/portaki-release-action{/,}**"],
       "enabled": false
     },
     {
-      "description": "Majors d'actions — review manuelle",
+      "description": "Ici, meme une action officielle ne passe pas seule. Ce depot s'execute dans les workflows d'AUTRES depots, avec leurs droits : le rayon d'explosion n'est pas le notre, et il n'y a pas de check requis pour le rattraper.",
       "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["major"],
-      "labels": ["dependencies", "breaking"]
+      "matchPackageNames": ["actions/**", "github/**"],
+      "automerge": false
     }
   ]
 }
