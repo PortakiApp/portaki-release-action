@@ -90,16 +90,28 @@ runs:
       # reproductible, une branche ne l'est pas.
       run: cargo install portaki-cli --version "$VERSION" --locked --force
 
-    # Garde-fou de la duplication : si le lecteur de lock ci-dessus et celui du CLI ne disent
-    # pas la même chose, on le sait ici plutôt qu'en cherchant pourquoi le cache rate.
     - shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         EXPECTED: ${{ steps.resolve.outputs.version }}
       run: |
         set -euo pipefail
+        portaki -V
+
+        # Tout ce que ces actions font passe par `portaki ci`. Une version antérieure ne la
+        # connaît pas : mieux vaut le dire ici, en une phrase, que laisser chaque étape échouer
+        # sur « unrecognized subcommand » sans que la cause apparaisse.
+        if ! portaki ci --help >/dev/null 2>&1; then
+          echo "::error::portaki ${EXPECTED} has no \`ci\` command, which these actions need."
+          echo "::error::Raise the portaki-sdk version this checkout resolves to, or pin a"
+          echo "::error::newer CLI with \`cli-version:\`."
+          exit 1
+        fi
+
+        # Garde-fou de la duplication : si le lecteur de lock ci-dessus et celui du CLI ne
+        # disent pas la même chose, on le sait ici plutôt qu'en cherchant pourquoi le cache
+        # rate.
         seen="$(portaki --plain ci sdk-version || true)"
         if [ -n "$seen" ] && [ "$seen" != "$EXPECTED" ]; then
           echo "::warning::the action read ${EXPECTED} from the lockfile, the CLI reads ${seen}"
         fi
-        portaki --plain --version || portaki -V

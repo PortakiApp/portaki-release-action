@@ -55,8 +55,14 @@ does not publish.
 | `check` | `true` | Warn about an outdated SDK or a manifest the shell has moved past |
 | `dry-run` | `false` | Build and package without pushing or announcing |
 | `summary` | `true` | Append a row to the run summary |
+| `report` | `true` | Tell Portaki how the run ended, so a broken module raises an alert and a fixed one clears it |
 
 Outputs: `id`, `version`, `outcome` (`published`, `already-published`, `dry-run`).
+
+The run report runs on **every** outcome, not only failures: conditioned on failure it could
+never *clear* an alert, and a module that has been fixed would keep its own indefinitely. It
+needs `id-token: write`, stores nothing on your side, and a report that fails never fails the
+job — the publication already happened.
 
 ## How the CLI version is chosen
 
@@ -70,6 +76,10 @@ cache invalidated by every commit to that branch, and a binary matching no publi
 
 The cache is keyed on that version alone, so it turns over when the SDK does. `cache: false`
 disables it where a stale binary would be worse than a rebuild.
+
+These actions are built on `portaki ci`, so they need a CLI that has it. When the resolved
+version is older, the install step says so in one line rather than letting every later step fail
+on `unrecognized subcommand` — raise the SDK your module resolves to, or pin `cli-version`.
 
 > One step reads the lockfile in shell, because nothing is installed yet. It duplicates what
 > `portaki ci sdk-version` does properly — so the step right after the install compares the two
