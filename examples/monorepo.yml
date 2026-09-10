@@ -19,7 +19,7 @@ jobs:
       modules: ${{ steps.list.outputs.modules }}
       any: ${{ steps.list.outputs.any }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # `ci modules --changed-since` compare deux révisions : un clone superficiel n'en a
           # qu'une, et tout serait reconstruit à chaque run.
@@ -43,7 +43,7 @@ jobs:
       matrix:
         module: ${{ fromJson(needs.detect.outputs.modules) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown

@@ -73,9 +73,12 @@ runs:
         echo "version=${resolved}" >>"$GITHUB_OUTPUT"
         echo "Portaki SDK resolves to ${resolved}; installing the matching CLI."
 
+    # `@v6` et non `@v4` : les majeures precedentes tournent sur Node 20, que GitHub a
+    # deprecie. Une action composite herite du runtime de celles qu'elle appelle, donc laisser
+    # une ancienne majeure ici imposerait l'avertissement a tous ceux qui nous utilisent.
     - if: inputs.cache == 'true'
       id: cached
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cargo/bin/portaki
         # Sur la version, et non sur le tip d'une branche : le cache ne tourne que lorsque le

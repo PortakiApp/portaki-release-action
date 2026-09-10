@@ -13,7 +13,7 @@ jobs:
     name: actionlint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Une action cassée ne se découvre autrement que dans le run de quelqu'un d'autre.
       - name: Lint the workflows and the examples
