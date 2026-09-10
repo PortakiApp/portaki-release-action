@@ -21,20 +21,32 @@ jobs:
         with:
           files: ".github/workflows/*.yml examples/*.yml"
 
-      # `actionlint` ne lit pas les `action.yml` : ce contrôle attrape la faute qui casse tout,
-      # une étape composite sans `shell`.
-      - name: Check every composite step declares its shell
+      # `actionlint` ne lit pas les `action.yml`. Ce contrôle attrape la faute qui casse tout :
+      # une étape composite qui n'a ni `uses` ni `shell`. Analysé en YAML et non au `grep` — une
+      # première version comptait les lignes et ratait les étapes dont la clé tient sur la
+      # ligne du tiret.
+      - name: Check every composite step is runnable
         run: |
-          set -euo pipefail
-          status=0
-          for manifest in action.yml */action.yml; do
-            [ -f "$manifest" ] || continue
-            runs=$(grep -c '^    - ' "$manifest" || true)
-            shells=$(grep -c '^      shell: ' "$manifest" || true)
-            uses=$(grep -c '^      uses: ' "$manifest" || true)
-            if [ "$runs" -ne $((shells + uses)) ]; then
-              echo "::error file=$manifest::$runs steps, $shells with a shell and $uses with uses"
-              status=1
-            fi
-          done
-          exit $status
+          python3 - <<'PY'
+          import glob, sys, yaml
+
+          status = 0
+          for path in sorted(glob.glob("action.yml") + glob.glob("*/action.yml")):
+              with open(path) as handle:
+                  manifest = yaml.safe_load(handle)
+              runs = manifest.get("runs", {})
+              if runs.get("using") != "composite":
+                  continue
+              for index, step in enumerate(runs.get("steps", []), start=1):
+                  name = step.get("name") or step.get("id") or f"step {index}"
+                  if "uses" in step:
+                      continue
+                  if "run" not in step:
+                      print(f"::error file={path}::{name} has neither `uses` nor `run`")
+                      status = 1
+                  elif "shell" not in step:
+                      print(f"::error file={path}::{name} runs without declaring `shell`")
+                      status = 1
+              print(f"{path}: {len(runs.get('steps', []))} steps checked")
+          sys.exit(status)
+          PY
