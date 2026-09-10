@@ -1,0 +1,105 @@
+name: Portaki — install the CLI
+description: Install the Portaki CLI from crates.io, at the version this checkout resolves to.
+author: Syntax Labs
+
+# Pourquoi cette action existe séparément : les deux autres en ont besoin avant de pouvoir
+# appeler `portaki`, et une action composite ne peut pas s'appeler elle-même à moitié.
+
+branding:
+  icon: download
+  color: green
+
+inputs:
+  working-directory:
+    description: Directory to resolve `Cargo.lock` from.
+    default: "."
+  version:
+    description: >-
+      Exact CLI version, or `auto` to take the Portaki SDK version this checkout resolves to.
+    default: auto
+  cache:
+    description: >-
+      Cache the compiled CLI between runs, keyed on the version. Set to `false` on a runner
+      where a stale binary would be worse than a rebuild.
+    default: "true"
+
+outputs:
+  version:
+    description: The Portaki CLI version that ended up installed.
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    # Le seul endroit où la version est lue sans `portaki` : il n'est pas encore installé.
+    # `portaki ci sdk-version` fait la même lecture, en mieux, et l'étape de vérification plus
+    # bas compare les deux — la duplication est gardée par une assertion plutôt que par la
+    # confiance.
+    - id: resolve
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        REQUESTED: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [ "$REQUESTED" != "auto" ]; then
+          echo "version=${REQUESTED}" >>"$GITHUB_OUTPUT"
+          echo "Portaki CLI pinned to ${REQUESTED}."
+          exit 0
+        fi
+
+        # `Cargo.lock` le plus proche en remontant : un module d'un monorepo partage celui de
+        # la racine. `Cargo.toml` ne suffirait pas — le SDK peut y être déclaré par branche git
+        # ou par chemin, et seul le lock dit ce qui sera compilé.
+        directory="$PWD"
+        lock=""
+        while [ "$directory" != "/" ]; do
+          if [ -f "$directory/Cargo.lock" ]; then lock="$directory/Cargo.lock"; break; fi
+          directory="$(dirname "$directory")"
+        done
+        if [ -z "$lock" ]; then
+          echo "::error::no Cargo.lock found — pass `version:` explicitly"
+          exit 1
+        fi
+
+        resolved="$(awk '
+          /^name = "portaki-sdk"$/ { found = 1; next }
+          found && /^version = / { gsub(/[",]/, "", $3); print $3; exit }
+        ' "$lock")"
+        if [ -z "$resolved" ]; then
+          echo "::error file=${lock#"$PWD"/}::no portaki-sdk in the lockfile — pass \`version:\` explicitly"
+          exit 1
+        fi
+        echo "version=${resolved}" >>"$GITHUB_OUTPUT"
+        echo "Portaki SDK resolves to ${resolved}; installing the matching CLI."
+
+    - if: inputs.cache == 'true'
+      id: cached
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/portaki
+        # Sur la version, et non sur le tip d'une branche : le cache ne tourne que lorsque le
+        # SDK change, pas à chaque commit poussé chez lui.
+        key: portaki-cli-${{ runner.os }}-${{ steps.resolve.outputs.version }}
+
+    - if: steps.cached.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+      # Depuis crates.io, pas depuis un clone du dépôt du SDK : une version publiée est
+      # reproductible, une branche ne l'est pas.
+      run: cargo install portaki-cli --version "$VERSION" --locked --force
+
+    # Garde-fou de la duplication : si le lecteur de lock ci-dessus et celui du CLI ne disent
+    # pas la même chose, on le sait ici plutôt qu'en cherchant pourquoi le cache rate.
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        EXPECTED: ${{ steps.resolve.outputs.version }}
+      run: |
+        set -euo pipefail
+        seen="$(portaki --plain ci sdk-version || true)"
+        if [ -n "$seen" ] && [ "$seen" != "$EXPECTED" ]; then
+          echo "::warning::the action read ${EXPECTED} from the lockfile, the CLI reads ${seen}"
+        fi
+        portaki --plain --version || portaki -V

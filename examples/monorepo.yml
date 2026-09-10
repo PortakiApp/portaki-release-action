@@ -1,0 +1,52 @@
+# Plusieurs modules dans un dépôt. La matrice est la vôtre : vous seul savez combien de
+# publications lancer en parallèle, dans quel environment, et dans quel ordre.
+#
+# Ce dépôt fournit les outils — `portaki ci modules` répond « lesquels », l'action publie celui
+# qu'on lui désigne.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.list.outputs.modules }}
+      any: ${{ steps.list.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `ci modules --changed-since` compare deux révisions : un clone superficiel n'en a
+          # qu'une, et tout serait reconstruit à chaque run.
+          fetch-depth: 0
+      - uses: PortakiApp/portaki-release-action/install@v1
+      - id: list
+        run: portaki ci modules --changed-since "${{ github.event.before }}"
+
+  release:
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        module: ${{ fromJson(needs.detect.outputs.modules) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: PortakiApp/portaki-release-action@v1
+        with:
+          working-directory: modules/${{ matrix.module }}

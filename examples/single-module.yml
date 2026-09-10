@@ -1,0 +1,26 @@
+# Un dépôt, un module. Le cas le plus simple : l'action fait tout.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+  # Sans ce droit GitHub n'émet aucun jeton OIDC, et il n'y a rien à échanger contre un
+  # credential de publication. C'est ce jeton qui remplace un secret longue durée.
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # La liaison enregistrée au registre exige un environment sur le canal stable : c'est lui
+    # qui porte les relecteurs obligatoires.
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: PortakiApp/portaki-release-action@v1

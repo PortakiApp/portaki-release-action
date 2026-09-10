@@ -1,0 +1,133 @@
+name: Portaki release
+description: Build, lint, publish and announce one Portaki module.
+author: Syntax Labs
+
+# Un module, celui du répertoire qu'on lui donne. Rien de plus.
+#
+# Un dépôt qui rassemble plusieurs modules construit sa propre matrice — il connaît ses
+# contraintes de parallélisme, ses environments et son ordre de publication mieux que nous. Ce
+# dépôt fournit les outils : `portaki ci modules` répond « lesquels », cette action publie
+# celui qu'on lui désigne. Décider à la place de l'appelant l'enfermerait dans une disposition.
+
+branding:
+  icon: package
+  color: green
+
+inputs:
+  working-directory:
+    description: The module to release — the directory holding its `portaki.module.json`.
+    default: "."
+  channel:
+    description: Registry channel the publication is announced on.
+    default: stable
+  registry:
+    description: OCI registry prefix the artifact is pushed to.
+    default: ghcr.io/portakiapp
+  api-url:
+    description: Portaki platform to announce to. Empty means production.
+    default: ""
+  cli-version:
+    description: Portaki CLI to install, or `auto` to match the SDK this checkout resolves to.
+    default: auto
+  cache:
+    description: Cache the Portaki CLI between runs.
+    default: "true"
+  check:
+    description: Warn about an outdated SDK or a manifest the shell has moved past.
+    default: "true"
+  dry-run:
+    description: Build and package without pushing or announcing anything.
+    default: "false"
+  summary:
+    description: Append what happened to the run summary.
+    default: "true"
+
+outputs:
+  id:
+    description: The module id that was released.
+    value: ${{ steps.release.outputs.id }}
+  version:
+    description: The version that was released.
+    value: ${{ steps.release.outputs.version }}
+  outcome:
+    description: "`published`, `already-published`, or `dry-run`."
+    value: ${{ steps.release.outputs.outcome }}
+
+runs:
+  using: composite
+  steps:
+    - uses: PortakiApp/portaki-release-action/install@v1
+      with:
+        working-directory: ${{ inputs.working-directory }}
+        version: ${{ inputs.cli-version }}
+        cache: ${{ inputs.cache }}
+
+    - if: inputs.check == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      # Des avertissements, jamais un échec : un SDK en retard n'est pas une raison de refuser
+      # une publication, c'est une raison de la voir venir.
+      run: portaki ci check
+
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        portaki build --release
+        portaki lint
+
+    - id: release
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PORTAKI_API_URL: ${{ inputs.api-url }}
+        GITHUB_TOKEN: ${{ github.token }}
+        CHANNEL: ${{ inputs.channel }}
+        REGISTRY: ${{ inputs.registry }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        # `ci info` rend l'id puis la version, une par ligne : rien à exiger du runner pour lire
+        # un champ que le CLI lit déjà — ni `jq`, ni `python3`.
+        portaki --plain ci info >/tmp/portaki-info
+        id="$(sed -n 1p /tmp/portaki-info)"
+        version="$(sed -n 2p /tmp/portaki-info)"
+        echo "id=${id}" >>"$GITHUB_OUTPUT"
+        echo "version=${version}" >>"$GITHUB_OUTPUT"
+
+        if [ "$DRY_RUN" = "true" ]; then
+          portaki publish --dry-run --registry "$REGISTRY"
+          echo "outcome=dry-run" >>"$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # `--skip-build` : le build vient d'avoir lieu et a été linté. Le refaire ici pousserait
+        # un artefact que personne n'a vérifié.
+        portaki publish --skip-build --registry "$REGISTRY" --channel "$CHANNEL" | tee /tmp/portaki-publish
+        if grep -q "already in the registry" /tmp/portaki-publish; then
+          echo "outcome=already-published" >>"$GITHUB_OUTPUT"
+        else
+          echo "outcome=published" >>"$GITHUB_OUTPUT"
+        fi
+
+    - if: always() && inputs.summary == 'true'
+      shell: bash
+      env:
+        ID: ${{ steps.release.outputs.id }}
+        VERSION: ${{ steps.release.outputs.version }}
+        OUTCOME: ${{ steps.release.outputs.outcome }}
+        CHANNEL: ${{ inputs.channel }}
+      # `always()`, et une seule en-tête de tableau : dans une matrice, chaque job ajoute sa
+      # ligne au même résumé. Un résumé qui ne s'écrit qu'en cas de succès laisse justement sans
+      # trace les runs qu'on relit.
+      run: |
+        set -euo pipefail
+        if ! grep -q '^| module | version |' "$GITHUB_STEP_SUMMARY" 2>/dev/null; then
+          {
+            echo "## Portaki release"
+            echo
+            echo "| module | version | channel | outcome |"
+            echo "|---|---|---|---|"
+          } >>"$GITHUB_STEP_SUMMARY"
+        fi
+        echo "| ${ID:-?} | ${VERSION:-—} | ${CHANNEL} | ${OUTCOME:-failed} |" >>"$GITHUB_STEP_SUMMARY"
