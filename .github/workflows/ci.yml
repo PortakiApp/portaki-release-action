@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# Un run chasse l'autre : la poussée la plus récente annule celles qui tournent encore sur la
+# même branche ou la même PR, plutôt que de tourner en parallèle ou d'attendre leur fin.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: actionlint
