@@ -1,6 +1,20 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "github>PortakiApp/renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "`PortakiApp/portaki-release-action/install@v1` pointe ce depot lui-meme. Un robot qui la ferait monter ferait tourner l'action contre une version d'elle-meme que personne n'a publiee.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["PortakiApp/portaki-release-action{/,}**"],
+      "enabled": false
+    },
+    {
+      "description": "Ici, meme une action officielle ne passe pas seule. Ce depot s'execute dans les workflows d'AUTRES depots, avec leurs droits : le rayon d'explosion n'est pas le notre, et il n'y a pas de check requis pour le rattraper.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["actions/**", "github/**"],
+      "automerge": false
+    }
   ]
 }

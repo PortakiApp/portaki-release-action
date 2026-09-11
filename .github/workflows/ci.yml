@@ -50,3 +50,29 @@ jobs:
               print(f"{path}: {len(runs.get('steps', []))} steps checked")
           sys.exit(status)
           PY
+
+  # La jauge que le ruleset exige, et le seul check requis sur `main`.
+  #
+  # Un job de synthèse plutôt que d'exiger `actionlint` par son nom : le job s'appelle `lint` et
+  # son check s'appelle `actionlint`, et cet écart est exactement le genre de détail qui fait
+  # exiger un check qui n'existe pas. La jauge, elle, porte le même nom que dans les cinq autres
+  # dépôts — la règle de branche est alors la même partout.
+  #
+  # `if: always()` pour qu'elle s'exécute même quand le lint échoue : sinon elle resterait « en
+  # attente » et la PR ne dirait pas pourquoi elle est bloquée.
+  quality:
+    name: quality
+    needs: [lint]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Quality gate
+        env:
+          LINT: ${{ needs.lint.result }}
+        run: |
+          if [ "$LINT" != "success" ]; then
+            echo "::error::actionlint a fini en '$LINT'"
+            exit 1
+          fi
+          echo "Contrôles verts."
