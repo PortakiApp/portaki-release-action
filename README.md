@@ -71,9 +71,26 @@ job — the publication already happened.
 may declare the SDK by semver, by git branch or by path, and only the lock says what will
 actually compile.
 
-The CLI is then installed **from crates.io** at that version — `cargo install portaki-cli@2.2.0`.
-Cloning the SDK repository to build it there would cost a branch resolution on every run, a
-cache invalidated by every commit to that branch, and a binary matching no published release.
+The CLI is then installed at that version, in this order:
+
+1. **Prebuilt binary** from the SDK's GitHub Release `v<version>` —
+   `portaki-<version>-<target>.tar.gz`, for `x86_64-unknown-linux-gnu` (Linux X64 runners) and
+   `aarch64-apple-darwin` (macOS ARM64 runners). Downloaded without a token, checked against the
+   `.sha256` published next to it, and put on the `PATH` from `$RUNNER_TEMP/portaki-bin`. Seconds
+   instead of ~2 minutes of compilation. These binaries come from the SDK's own release workflow,
+   which compiles the SDK and nothing else — no module code, no cache.
+2. **From crates.io** — `cargo install portaki-cli --version <version> --locked`, when the release
+   has no binary (SDK versions released before the binaries existed), the runner has no supported
+   target, `cli-version` is a range rather than an exact version, the download fails, or the
+   binary does not start (a runner image older than the build's glibc). The
+   [cache](#the-cache) applies to this path only.
+
+An archive whose `.sha256` is missing or does not match **fails the step**: the binary is never
+run, and there is no silent fallback that would hide a tampered release.
+
+Building from crates.io rather than a clone of the SDK repository: a clone would cost a branch
+resolution on every run, a cache invalidated by every commit to that branch, and a binary
+matching no published release.
 
 ### The cache
 

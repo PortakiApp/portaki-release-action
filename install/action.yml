@@ -1,5 +1,5 @@
 name: Portaki — install the CLI
-description: Install the Portaki CLI from crates.io, at the version this checkout resolves to.
+description: Install the Portaki CLI at the version this checkout resolves to — prebuilt from the SDK release, else from crates.io.
 author: Syntax Labs
 
 # Pourquoi cette action existe séparément : les deux autres en ont besoin avant de pouvoir
@@ -74,10 +74,21 @@ runs:
         echo "version=${resolved}" >>"$GITHUB_OUTPUT"
         echo "Portaki SDK resolves to ${resolved}; installing the matching CLI."
 
+    # Binaire précompilé d'abord : ~2 min de `cargo install` en moins par job. Il sort du seul
+    # workflow de release du SDK (aucun code de module n'y tourne) et chaque archive porte sa
+    # somme SHA-256 dans la même release. Pas d'asset (version antérieure), cible non couverte ou
+    # téléchargement en échec : on retombe sur `cargo install` plus bas. Somme fausse ou
+    # absente : échec, jamais d'exécution.
+    - id: prebuilt
+      shell: bash
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+      run: bash "$GITHUB_ACTION_PATH/prebuilt.sh"
+
     # `@v6` et non `@v4` : les majeures precedentes tournent sur Node 20, que GitHub a
     # deprecie. Une action composite herite du runtime de celles qu'elle appelle, donc laisser
     # une ancienne majeure ici imposerait l'avertissement a tous ceux qui nous utilisent.
-    - if: inputs.cache == 'true'
+    - if: inputs.cache == 'true' && steps.prebuilt.outputs.installed != 'true'
       id: cached
       uses: actions/cache/restore@v6
       with:
@@ -86,7 +97,7 @@ runs:
         # SDK change, pas à chaque commit poussé chez lui.
         key: portaki-cli-${{ runner.os }}-${{ steps.resolve.outputs.version }}
 
-    - if: steps.cached.outputs.cache-hit != 'true'
+    - if: steps.prebuilt.outputs.installed != 'true' && steps.cached.outputs.cache-hit != 'true'
       shell: bash
       env:
         VERSION: ${{ steps.resolve.outputs.version }}
@@ -97,7 +108,9 @@ runs:
     # Sauvé ici, juste après l'installation, et non en fin de job comme `actions/cache` : entre
     # les deux, le job compile le module et exécute son `build.rs`, qui pouvait remplacer
     # `~/.cargo/bin/portaki` — et ce binaire-là partait dans le cache des jobs de publication.
-    - if: inputs.cache == 'true' && steps.cached.outputs.cache-hit != 'true'
+    - if: >-
+        inputs.cache == 'true' && steps.prebuilt.outputs.installed != 'true'
+        && steps.cached.outputs.cache-hit != 'true'
       uses: actions/cache/save@v6
       with:
         path: ~/.cargo/bin/portaki
