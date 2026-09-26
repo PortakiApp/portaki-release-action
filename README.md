@@ -17,9 +17,10 @@
 - uses: PortakiApp/portaki-release-action@v1
 ```
 
-That builds the module in the current directory for `wasm32`, lints its manifest, pushes the OCI
-artifact, announces the version to the registry, warns about anything ageing, and writes a row
-into the run summary.
+That audits the module's dependencies with `cargo audit`, builds it for `wasm32`, lints its
+manifest, pushes the OCI artifact, signs it keylessly with its provenance and audit report,
+announces the version to the registry, warns about anything ageing, and writes a row into the run
+summary.
 
 ## What it does not do
 
@@ -37,10 +38,13 @@ answers *which modules*, and the action releases the one you name. See
 |--------|------|
 | `PortakiApp/portaki-release-action@v1` | Release the module in `working-directory` |
 | `PortakiApp/portaki-release-action/install@v1` | Install the Portaki CLI, and nothing else |
+| `PortakiApp/portaki-release-action/audit@v1` | Run `cargo audit` on the module's `Cargo.lock` and write the report |
+| `PortakiApp/portaki-release-action/sign@v1` | Sign a pushed artifact and attach its provenance and audit report |
 
 `install` is separate because everything needs it first, and because a workflow often wants the
 CLI on its own — to list modules, to inspect an artifact, to run `portaki ci check` in a job that
-does not publish.
+does not publish. `audit` and `sign` are separate for a repository that builds in one job and
+publishes from another: the main action runs both itself.
 
 ## Inputs
 
@@ -54,11 +58,13 @@ does not publish.
 | `cache` | `false` | Cache the compiled CLI between runs — see [the cache](#the-cache) |
 | `build` | `true` | Build and lint first; `false` publishes an artifact a previous job produced |
 | `check` | `true` | Warn about an outdated SDK or a manifest the shell has moved past |
+| `audit-fail-on` | `critical` | Lowest `cargo audit` severity that fails the release — see [the audit](#the-dependency-audit) |
 | `dry-run` | `false` | Build and package without pushing or announcing |
 | `summary` | `true` | Append a row to the run summary |
 | `report` | `true` | Tell Portaki how the run ended, so a broken module raises an alert and a fixed one clears it |
 
-Outputs: `id`, `version`, `outcome` (`published`, `already-published`, `dry-run`).
+Outputs: `id`, `version`, `outcome` (`published`, `already-published`, `dry-run`), `digest` (the
+digest signed and announced).
 
 The run report runs on **every** outcome, not only failures: conditioned on failure it could
 never *clear* an alert, and a module that has been fixed would keep its own indefinitely. It
@@ -112,6 +118,59 @@ on `unrecognized subcommand` — raise the SDK your module resolves to, or pin `
 > `portaki ci sdk-version` does properly — so the step right after the install compares the two
 > and warns if they disagree. The duplication is guarded by an assertion, not by trust.
 
+## Signature and provenance
+
+Portaki production runs a module only if its digest carries a valid signature from the workflow
+linked to that module. An artifact pushed to GHCR by hand, outside CI, is never run there.
+
+The publication therefore happens in three steps, all in the job that holds `id-token: write`:
+
+1. `portaki publish --no-announce` pushes the artifact;
+2. [cosign](https://github.com/sigstore/cosign) v3.1.3 signs its digest **without a key**: the
+   job's OIDC token is exchanged at Sigstore's Fulcio for a short-lived certificate naming the
+   repository, the commit, the workflow file and the ref, and every signature is recorded in the
+   public Rekor log. Next to it, `cosign attest` attaches a
+   [SLSA v1 provenance](https://slsa.dev/provenance/v1) and the `cargo audit` report
+   (`https://portaki.app/attestations/cargo-audit/v1`);
+3. `portaki publish --announce-only` announces the version. The registry verifies the signature
+   against the repository and workflow of the module's link, and records the result (`signed`,
+   `unsigned`, or refuses an `invalid` one).
+
+Why cosign rather than GitHub's `actions/attest-build-provenance`: GitHub attestations are only
+available to private repositories on GitHub Enterprise Cloud, and a community module may well
+live in a private repository on a free plan. cosign keyless works for every repository, and the
+same binary verifies on the registry side, so both ends read one format.
+
+The signing identity is the **job**. A malicious `build.rs` running in that job could request the
+same token — which is why a repository that can should build in a job without `id-token`, and
+publish with `build: false` (or `portaki publish --prebuilt`) from another. A private repository
+is named in the public Rekor log when it signs; that is the price of a verifiable signature.
+
+Nothing to configure: the action installs cosign and signs. The job only needs the permissions
+below.
+
+## The dependency audit
+
+Before building, the action runs [`cargo audit`](https://rustsec.org) (RustSec) on the
+`Cargo.lock` nearest the module — a prebuilt, SHA-256-pinned `cargo-audit` binary, so nothing of
+the module is compiled for it. The report lands in `target/portaki/cargo-audit.json` and is
+attested with the artifact; the registry keeps its summary, shown to reviewers and to the author.
+
+Severity comes from the advisory's CVSS 3.x vector: `critical` ≥ 9.0, `high` ≥ 7.0, `medium` ≥
+4.0, `low` below. `audit-fail-on` (default `critical`) is the lowest severity that fails the
+release. An advisory without a CVSS 3 vector is `unknown` and only warns. Informational
+advisories — `unmaintained`, `unsound`, `notice`, `yanked` — never fail a release: an
+unmaintained crate is a reason to look, not to block.
+
+With `build: false`, the job that built runs `audit@v1` and hands the report over with the
+artifact, under `target/portaki/cargo-audit.json`:
+
+```yaml
+- uses: PortakiApp/portaki-release-action/audit@v1
+  with:
+    working-directory: modules/${{ matrix.module }}
+```
+
 ## One publication at a time
 
 Two jobs publishing the same module at once overwrite the same OCI tag in turn, and the
@@ -132,12 +191,13 @@ concurrency:
 ```yaml
 permissions:
   contents: read
-  packages: write
-  id-token: write     # sans quoi il n'y a pas de jeton OIDC à échanger
+  packages: write     # l'artefact, et sa signature poussée à côté
+  id-token: write     # sans quoi il n'y a pas de jeton OIDC à échanger, ni d'identité qui signe
 ```
 
-No publication secret to store. In a job with `id-token: write`, the CLI asks GitHub for the
-job's OIDC token and exchanges it at the registry for a single-use publication credential. The
+No publication secret to store, no signing key. In a job with `id-token: write`, the CLI asks
+GitHub for the job's OIDC token and exchanges it at the registry for a single-use publication
+credential; cosign exchanges the same kind of token at Sigstore for its signing certificate. The
 token proves where it comes from; the link registered in the dashboard decides what it may
 publish — so link the module to its repository there before the first run.
 

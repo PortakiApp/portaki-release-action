@@ -55,6 +55,14 @@ jobs:
           sys.exit(status)
           PY
 
+      # Le seuil de l'audit repose sur un calcul CVSS écrit ici : il se vérifie sur des scores
+      # connus, et les scripts au moins se lisent.
+      - name: Check the audit and signing scripts
+        run: |
+          python3 audit/report.py --self-test
+          bash -n audit/audit.sh
+          bash -n sign/sign.sh
+
   # La jauge que le ruleset exige, et le seul check requis sur `main`.
   #
   # Un job de synthèse plutôt que d'exiger `actionlint` par son nom : le job s'appelle `lint` et

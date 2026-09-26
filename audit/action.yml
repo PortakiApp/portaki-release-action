@@ -1,0 +1,40 @@
+name: Portaki — audit dependencies
+description: Run cargo audit (RustSec) on the module's Cargo.lock and write the report its publication will attest.
+author: Syntax Labs
+
+# Pour un dépôt qui construit dans un job et publie dans un autre : ce pas va dans le job qui
+# construit (sans secrets), avant le build. Le rapport voyage avec l'artefact jusqu'au job de
+# publication, qui l'atteste (`sign`). L'action principale l'appelle d'elle-même.
+
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  working-directory:
+    description: The module — its nearest Cargo.lock is audited.
+    default: "."
+  fail-on:
+    description: >-
+      Lowest severity that fails the step — `critical`, `high`, `medium`, `low`, or `none`.
+      Informational advisories (unmaintained, unsound, yanked) only warn.
+    default: critical
+  report:
+    description: Where to write the report, relative to `working-directory`.
+    default: target/portaki/cargo-audit.json
+
+outputs:
+  report:
+    description: Absolute path of the report.
+    value: ${{ steps.audit.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - id: audit
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        FAIL_ON: ${{ inputs.fail-on }}
+        REPORT: ${{ inputs.report }}
+      run: bash "$GITHUB_ACTION_PATH/audit.sh"
