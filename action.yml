@@ -42,9 +42,10 @@ inputs:
     default: critical
   build:
     description: >-
-      Build and lint before publishing. Set to `false` when a previous job already built the
-      module and handed the artifact over — the publication then pushes exactly what was
-      verified, instead of a second build nobody looked at.
+      Build, lint and test before publishing. Discouraged: the module's code (`build.rs`, its
+      tests) then runs in the job that holds the publishing rights. Set to `false` in a job
+      that downloaded what a job without those rights built and tested — the publication then
+      pushes exactly what was verified and runs nothing of the module (`publish --prebuilt`).
     default: "true"
   check:
     description: Warn about an outdated SDK or a manifest the shell has moved past.
@@ -105,8 +106,12 @@ runs:
     - if: inputs.build == 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        DRY_RUN: ${{ inputs.dry-run }}
       run: |
         set -euo pipefail
+        # Un dry-run est justement le job de build recommandé, sans droits : rien à signaler.
+        [ "$DRY_RUN" = "true" ] || echo "::warning::build: true runs the module's code (build.rs, tests) in the job that holds the publishing rights. Build in a job without them and publish with build: false — see the README."
         portaki build --release
         portaki lint
 
@@ -119,6 +124,7 @@ runs:
         CHANNEL: ${{ inputs.channel }}
         REGISTRY: ${{ inputs.registry }}
         DRY_RUN: ${{ inputs.dry-run }}
+        BUILD: ${{ inputs.build }}
       run: |
         set -euo pipefail
         # `ci info` rend l'id puis la version, une par ligne : rien à exiger du runner pour lire
@@ -129,16 +135,31 @@ runs:
         echo "id=${id}" >>"$GITHUB_OUTPUT"
         echo "version=${version}" >>"$GITHUB_OUTPUT"
 
+        # `build: false` : l'artefact vient d'un job sans droits, qui a construit et testé.
+        # `--prebuilt` ne lance ni build ni tests (`--skip-build`, si : `cargo test`, donc le
+        # code du module, avec `id-token` et `packages: write`) et refuse un artefact dont l'id
+        # ou la version diffère des sources. Un CLI d'avant 8.8.0 ne l'a pas : on garde alors
+        # l'ancien comportement, en le disant.
+        # `build: true` : `--skip-build`, le build vient d'avoir lieu et a été linté ; le refaire
+        # pousserait un artefact que personne n'a vérifié. Les tests tournent ici.
+        mode=--skip-build
+        if [ "$BUILD" != "true" ]; then
+          if portaki publish --help | grep -- '--prebuilt' >/dev/null; then
+            mode=--prebuilt
+          else
+            echo "::warning::this CLI has no \`publish --prebuilt\`: the module's tests run in this job, with the publishing rights. Raise portaki-sdk to 8.8.0 or later."
+          fi
+        fi
+
         if [ "$DRY_RUN" = "true" ]; then
-          portaki publish --dry-run --registry "$REGISTRY"
+          portaki publish --dry-run "$mode" --registry "$REGISTRY"
           echo "outcome=dry-run" >>"$GITHUB_OUTPUT"
           exit 0
         fi
 
         # Poussé sans annonce : le registre vérifie la signature à l'annonce, elle doit donc
-        # exister avant. `--skip-build` : le build vient d'avoir lieu et a été linté. Le refaire
-        # ici pousserait un artefact que personne n'a vérifié.
-        portaki publish --skip-build --no-announce --registry "$REGISTRY" --channel "$CHANNEL" | tee /tmp/portaki-publish
+        # exister avant.
+        portaki publish "$mode" --no-announce --registry "$REGISTRY" --channel "$CHANNEL" | tee /tmp/portaki-publish
         if grep -q "already in the registry" /tmp/portaki-publish; then
           echo "outcome=already-published" >>"$GITHUB_OUTPUT"
         else

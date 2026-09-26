@@ -1,4 +1,6 @@
-# Un dépôt, un module. Le cas le plus simple : l'action fait tout.
+# Un dépôt, un module. Deux jobs : le code du module (`build.rs`, ses tests) ne tourne que dans
+# celui qui n'a aucun droit de publication ; celui qui les a pousse l'artefact vérifié, sans rien
+# exécuter du module.
 name: release
 
 on:
@@ -7,14 +9,39 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  # Sans ce droit GitHub n'émet aucun jeton OIDC, et il n'y a rien à échanger contre un
-  # credential de publication. C'est ce jeton qui remplace un secret longue durée.
-  id-token: write
 
 jobs:
-  release:
+  # Audit, build, lint, tests et batterie de conformité, emballage OCI : tout ce que la
+  # publication exige, joué ici sans `id-token` ni `packages: write`.
+  build:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: PortakiApp/portaki-release-action@v1
+        with:
+          dry-run: true
+          report: false
+          summary: false
+      - uses: actions/upload-artifact@v7
+        with:
+          name: module
+          path: |
+            target/wasm32-unknown-unknown/release/*.wasm
+            target/portaki/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # Sans ce droit GitHub n'émet aucun jeton OIDC, et il n'y a rien à échanger contre un
+      # credential de publication. C'est ce jeton qui remplace un secret longue durée.
+      id-token: write
     # Deux publications simultanées du même module écrasent tour à tour le même tag OCI, et le
     # catalogue finit par référencer un digest que le tag ne porte plus. On met en file plutôt
     # que d'interrompre : une publication en cours doit aboutir.
@@ -25,8 +52,15 @@ jobs:
     # qui porte les relecteurs obligatoires.
     environment: release
     steps:
+      # Les sources sont lues (manifeste, i18n, CHANGELOG), jamais compilées.
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      # `upload-artifact` enracine les deux chemins à leur ancêtre commun, `target/`.
+      - uses: actions/download-artifact@v8
         with:
-          targets: wasm32-unknown-unknown
+          name: module
+          path: target
+      # `build: false` : `portaki publish --prebuilt`, ni build ni tests. Le CLI refuse un
+      # artefact dont l'id ou la version diffère des sources.
       - uses: PortakiApp/portaki-release-action@v1
+        with:
+          build: false
