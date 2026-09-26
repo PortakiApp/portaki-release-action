@@ -19,8 +19,9 @@ inputs:
     default: auto
   cache:
     description: >-
-      Cache the compiled CLI between runs, keyed on the version. Set to `false` on a runner
-      where a stale binary would be worse than a rebuild.
+      Cache the compiled CLI between runs, keyed on the version. Set to `false` in a job that
+      holds publishing rights: a cached binary is only as trustworthy as every job that can
+      write the cache.
     default: "true"
 
 outputs:
@@ -78,7 +79,7 @@ runs:
     # une ancienne majeure ici imposerait l'avertissement a tous ceux qui nous utilisent.
     - if: inputs.cache == 'true'
       id: cached
-      uses: actions/cache@v6
+      uses: actions/cache/restore@v6
       with:
         path: ~/.cargo/bin/portaki
         # Sur la version, et non sur le tip d'une branche : le cache ne tourne que lorsque le
@@ -92,6 +93,15 @@ runs:
       # Depuis crates.io, pas depuis un clone du dépôt du SDK : une version publiée est
       # reproductible, une branche ne l'est pas.
       run: cargo install portaki-cli --version "$VERSION" --locked --force
+
+    # Sauvé ici, juste après l'installation, et non en fin de job comme `actions/cache` : entre
+    # les deux, le job compile le module et exécute son `build.rs`, qui pouvait remplacer
+    # `~/.cargo/bin/portaki` — et ce binaire-là partait dans le cache des jobs de publication.
+    - if: inputs.cache == 'true' && steps.cached.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.cargo/bin/portaki
+        key: ${{ steps.cached.outputs.cache-primary-key }}
 
     - shell: bash
       working-directory: ${{ inputs.working-directory }}
