@@ -51,7 +51,7 @@ jobs:
         module: ${{ fromJson(needs.detect.outputs.modules) }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: wasm32-unknown-unknown
       - uses: PortakiApp/portaki-release-action@v1

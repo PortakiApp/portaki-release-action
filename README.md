@@ -51,7 +51,7 @@ does not publish.
 | `registry` | `ghcr.io/portakiapp` | OCI registry prefix |
 | `api-url` | *(empty)* | Platform to announce to; empty means production |
 | `cli-version` | `auto` | Exact CLI version, or the SDK version this checkout resolves to |
-| `cache` | `true` | Cache the compiled CLI between runs |
+| `cache` | `false` | Cache the compiled CLI between runs — see [the cache](#the-cache) |
 | `build` | `true` | Build and lint first; `false` publishes an artifact a previous job produced |
 | `check` | `true` | Warn about an outdated SDK or a manifest the shell has moved past |
 | `dry-run` | `false` | Build and package without pushing or announcing |
@@ -75,8 +75,17 @@ The CLI is then installed **from crates.io** at that version — `cargo install 
 Cloning the SDK repository to build it there would cost a branch resolution on every run, a
 cache invalidated by every commit to that branch, and a binary matching no published release.
 
-The cache is keyed on that version alone, so it turns over when the SDK does. `cache: false`
-disables it where a stale binary would be worse than a rebuild.
+### The cache
+
+The cache is keyed on that version alone, so it turns over when the SDK does. `install` saves it
+right after `cargo install`, before the job runs anything of the module — a `build.rs` can no
+longer swap the binary that ends up cached.
+
+The release action does **not** use it by default (`cache: false`): its job holds the publishing
+rights, and a cached binary is only as trustworthy as every job allowed to write the cache —
+including one that ran module code on a runner it could tamper with. `install` keeps `cache:
+true` for jobs that build, lint or list; pass `cache: false` to it too in a job that holds
+secrets.
 
 These actions are built on `portaki ci`, so they need a CLI that has it. When the resolved
 version is older, the install step says so in one line rather than letting every later step fail
