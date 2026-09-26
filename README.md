@@ -14,13 +14,58 @@
 ---
 
 ```yaml
-- uses: PortakiApp/portaki-release-action@v1
+jobs:
+  build:                      # no publishing rights: the module's code runs here
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: PortakiApp/portaki-release-action@v1
+        with: { dry-run: true, report: false, summary: false }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: module
+          path: |
+            target/wasm32-unknown-unknown/release/*.wasm
+            target/portaki/
+
+  release:                    # the publishing rights: nothing of the module runs here
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions: { contents: read, packages: write, id-token: write }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with: { name: module, path: target }
+      - uses: PortakiApp/portaki-release-action@v1
+        with: { build: false }
 ```
 
-That audits the module's dependencies with `cargo audit`, builds it for `wasm32`, lints its
-manifest, pushes the OCI artifact, signs it keylessly with its provenance and audit report,
+The `build` job audits the module's dependencies with `cargo audit`, builds it for `wasm32`,
+lints its manifest, runs its tests and the conformity suite, and packages the OCI artifact —
+without any right to publish. The `release` job pushes exactly that artifact
+(`portaki publish --prebuilt`: no build, no tests, and the CLI refuses an artifact whose id or
+version differs from the sources), signs it keylessly with its provenance and audit report,
 announces the version to the registry, warns about anything ageing, and writes a row into the run
-summary.
+summary. The full file is [`examples/single-module.yml`](examples/single-module.yml).
+
+### Why two jobs
+
+A module's `build.rs` and its tests are code its author wrote. Run in a job that holds
+`id-token: write` and `packages: write`, that code can request the job's OIDC token — the
+identity the artifact is signed with — and push to the registry. The `release` job therefore runs
+nothing of the module: it reads the sources (manifest, i18n, changelog) and pushes what `build`
+produced.
+
+`build: false` needs a CLI with `publish --prebuilt` (portaki-sdk 8.8.0 or later). With an older
+one the action warns and keeps the previous behaviour, which runs the module's tests in that job.
+
+A single job — `uses: PortakiApp/portaki-release-action@v1` with the default `build: true` —
+still works, but is **discouraged: the module's code runs with the publishing rights**. The action
+says so in a warning.
 
 ## What it does not do
 
@@ -30,7 +75,7 @@ this action does. Deciding for the caller would lock them into one layout.
 
 What this repository provides is tools — [`portaki ci modules`](https://github.com/PortakiApp/portaki-sdk)
 answers *which modules*, and the action releases the one you name. See
-[`examples/monorepo.yml`](examples/monorepo.yml) for the two-job shape.
+[`examples/monorepo.yml`](examples/monorepo.yml) for the matrix shape.
 
 ## Actions
 
@@ -56,10 +101,10 @@ publishes from another: the main action runs both itself.
 | `api-url` | *(empty)* | Platform to announce to; empty means production |
 | `cli-version` | `auto` | Exact CLI version, or the SDK version this checkout resolves to |
 | `cache` | `false` | Cache the compiled CLI between runs — see [the cache](#the-cache) |
-| `build` | `true` | Build and lint first; `false` publishes an artifact a previous job produced |
+| `build` | `true` | `false`: push the artifact a job without rights built and tested, running nothing of the module (recommended). `true`: build, lint and test here — discouraged, the module's code runs with the publishing rights |
 | `check` | `true` | Warn about an outdated SDK or a manifest the shell has moved past |
 | `audit-fail-on` | `critical` | Lowest `cargo audit` severity that fails the release — see [the audit](#the-dependency-audit) |
-| `dry-run` | `false` | Build and package without pushing or announcing |
+| `dry-run` | `false` | Build, test and package without pushing or announcing — the `build` job of the two-job shape |
 | `summary` | `true` | Append a row to the run summary |
 | `report` | `true` | Tell Portaki how the run ended, so a broken module raises an alert and a fixed one clears it |
 
@@ -141,9 +186,9 @@ available to private repositories on GitHub Enterprise Cloud, and a community mo
 live in a private repository on a free plan. cosign keyless works for every repository, and the
 same binary verifies on the registry side, so both ends read one format.
 
-The signing identity is the **job**. A malicious `build.rs` running in that job could request the
-same token — which is why a repository that can should build in a job without `id-token`, and
-publish with `build: false` (or `portaki publish --prebuilt`) from another. A private repository
+The signing identity is the **job**. A malicious `build.rs` or test running in that job could
+request the same token — which is why the module is built and tested in a job without
+`id-token`, and published with `build: false` (`portaki publish --prebuilt`) from another. A private repository
 is named in the public Rekor log when it signs; that is the price of a verifiable signature.
 
 Nothing to configure: the action installs cosign and signs. The job only needs the permissions
@@ -162,8 +207,9 @@ release. An advisory without a CVSS 3 vector is `unknown` and only warns. Inform
 advisories — `unmaintained`, `unsound`, `notice`, `yanked` — never fail a release: an
 unmaintained crate is a reason to look, not to block.
 
-With `build: false`, the job that built runs `audit@v1` and hands the report over with the
-artifact, under `target/portaki/cargo-audit.json`:
+With `build: false`, the report comes from the job that built, with the artifact, under
+`target/portaki/cargo-audit.json`. The action run there with `dry-run: true` writes it; a build
+job of your own runs `audit@v1` before building:
 
 ```yaml
 - uses: PortakiApp/portaki-release-action/audit@v1
@@ -188,6 +234,8 @@ concurrency:
 
 ## Permissions
 
+On the `release` job only — the `build` job needs none of them:
+
 ```yaml
 permissions:
   contents: read
@@ -206,8 +254,8 @@ the exchange is refused with `environment_required`.
 
 ## Examples
 
-- [`examples/single-module.yml`](examples/single-module.yml) — one repository, one module
-- [`examples/monorepo.yml`](examples/monorepo.yml) — your matrix, our tools
+- [`examples/single-module.yml`](examples/single-module.yml) — one repository, one module, two jobs
+- [`examples/monorepo.yml`](examples/monorepo.yml) — your matrix, our tools, the same two jobs
 
 ## License
 

@@ -63,6 +63,70 @@ jobs:
           bash -n audit/audit.sh
           bash -n sign/sign.sh
 
+  # `build: false` ne doit rien exécuter du module dans le job qui détient les droits : ni
+  # `cargo build`, ni `cargo test`, ni donc `build.rs`. Un faux `cargo` qui échoue sur tout sauf
+  # `metadata` (lecture du lock) et `install` (le CLI depuis crates.io) passe devant le vrai ; un
+  # module construit d'abord comme le ferait le job sans droits, puis publié en dry-run.
+  prebuilt:
+    name: build false runs no module code
+    runs-on: ubuntu-latest
+    env:
+      CLI: 8.8.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: ./install
+        with:
+          version: ${{ env.CLI }}
+
+      - name: Build a module, as the job without rights does
+        run: |
+          set -euo pipefail
+          portaki init fixture -y
+          cd fixture
+          portaki build --release
+
+      - name: Shadow cargo with one that refuses to build or test
+        run: |
+          set -euo pipefail
+          shim="$RUNNER_TEMP/cargo-shim"
+          mkdir -p "$shim"
+          real="$(command -v cargo)"
+          cat >"$shim/cargo" <<EOF
+          #!/usr/bin/env bash
+          case "\$1" in metadata|install) exec "$real" "\$@" ;; esac
+          echo "cargo \$*" >>"$RUNNER_TEMP/cargo-calls"
+          echo "::error::cargo \$* ran in the publishing job"
+          exit 97
+          EOF
+          chmod +x "$shim/cargo"
+          echo "$shim" >>"$GITHUB_PATH"
+
+      - id: release
+        uses: ./
+        with:
+          working-directory: fixture
+          build: false
+          dry-run: true
+          check: false
+          report: false
+          summary: false
+          cli-version: ${{ env.CLI }}
+          cache: "true"
+
+      - name: Nothing of the module ran
+        env:
+          OUTCOME: ${{ steps.release.outputs.outcome }}
+        run: |
+          set -euo pipefail
+          if [ -s "$RUNNER_TEMP/cargo-calls" ]; then
+            echo "::error::cargo ran: $(cat "$RUNNER_TEMP/cargo-calls")"
+            exit 1
+          fi
+          test "$OUTCOME" = dry-run
+
   # La jauge que le ruleset exige, et le seul check requis sur `main`.
   #
   # Un job de synthèse plutôt que d'exiger `actionlint` par son nom : le job s'appelle `lint` et
@@ -74,7 +138,7 @@ jobs:
   # attente » et la PR ne dirait pas pourquoi elle est bloquée.
   quality:
     name: quality
-    needs: [lint]
+    needs: [lint, prebuilt]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 1
@@ -82,9 +146,14 @@ jobs:
       - name: Quality gate
         env:
           LINT: ${{ needs.lint.result }}
+          PREBUILT: ${{ needs.prebuilt.result }}
         run: |
           if [ "$LINT" != "success" ]; then
             echo "::error::actionlint a fini en '$LINT'"
+            exit 1
+          fi
+          if [ "$PREBUILT" != "success" ]; then
+            echo "::error::build: false a fini en '$PREBUILT'"
             exit 1
           fi
           echo "Contrôles verts."

@@ -2,7 +2,7 @@
 # publications lancer en parallèle, dans quel environment, et dans quel ordre.
 #
 # Ce dépôt fournit les outils — `portaki ci modules` répond « lesquels », l'action publie celui
-# qu'on lui désigne.
+# qu'on lui désigne. Le code des modules ne tourne que dans `build`, sans droits de publication.
 name: release
 
 on:
@@ -28,9 +28,36 @@ jobs:
       - id: list
         run: portaki ci modules --changed-since "${{ github.event.before }}"
 
-  release:
+  # Audit, build, lint, tests, emballage : sans `id-token` ni `packages: write`.
+  build:
     needs: detect
     if: needs.detect.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJson(needs.detect.outputs.modules) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: PortakiApp/portaki-release-action@v1
+        with:
+          working-directory: modules/${{ matrix.module }}
+          dry-run: true
+          report: false
+          summary: false
+      - uses: actions/upload-artifact@v7
+        with:
+          name: module-${{ matrix.module }}
+          path: |
+            modules/${{ matrix.module }}/target/wasm32-unknown-unknown/release/*.wasm
+            modules/${{ matrix.module }}/target/portaki/
+          if-no-files-found: error
+
+  release:
+    needs: [detect, build]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -50,10 +77,13 @@ jobs:
       matrix:
         module: ${{ fromJson(needs.detect.outputs.modules) }}
     steps:
+      # Les sources sont lues, jamais compilées.
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: actions/download-artifact@v8
         with:
-          targets: wasm32-unknown-unknown
+          name: module-${{ matrix.module }}
+          path: modules/${{ matrix.module }}/target
       - uses: PortakiApp/portaki-release-action@v1
         with:
           working-directory: modules/${{ matrix.module }}
+          build: false
