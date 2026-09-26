@@ -1,0 +1,48 @@
+name: Portaki — sign the pushed artifact
+description: Sign a pushed module artifact keylessly (Sigstore) and attach its provenance and cargo audit report.
+author: Syntax Labs
+
+# Pour un job de publication écrit à la main : après `portaki publish --no-announce`, avant
+# `portaki publish --announce-only`. Le registre vérifie la signature à l'annonce ; une
+# production Portaki refuse d'exécuter un digest qui n'en a pas.
+#
+# Le job a besoin de `id-token: write` (l'identité qui signe) et `packages: write` (la signature
+# est poussée à côté de l'artefact). L'action principale fait ces trois pas d'elle-même.
+
+branding:
+  icon: lock
+  color: green
+
+inputs:
+  working-directory:
+    description: The module — the directory holding its `portaki.module.json`.
+    default: "."
+  registry:
+    description: OCI registry prefix the artifact was pushed to.
+    default: ghcr.io/portakiapp
+  audit-report:
+    description: The `cargo audit` report to attest, relative to `working-directory`. Missing, the version shows as not audited.
+    default: target/portaki/cargo-audit.json
+
+outputs:
+  digest:
+    description: The digest that was signed.
+    value: ${{ steps.sign.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    # cosign v3.1.3 — la même version que l'image du registre qui vérifie : un format de
+    # signature que le vérificateur ne lit pas serait « non signé » pour lui.
+    - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      with:
+        cosign-release: v3.1.3
+
+    - id: sign
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        AUDIT_REPORT: ${{ inputs.audit-report }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: bash "$GITHUB_ACTION_PATH/sign.sh"

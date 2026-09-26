@@ -34,6 +34,12 @@ inputs:
       Cache the Portaki CLI between runs. Off by default: this job holds the publishing rights,
       and a cached binary is only as trustworthy as every job that can write the cache.
     default: "false"
+  audit-fail-on:
+    description: >-
+      Lowest `cargo audit` severity that fails the release — `critical`, `high`, `medium`, `low`,
+      or `none`. Informational advisories (unmaintained, unsound, yanked) only warn. The report
+      is attested with the artifact either way.
+    default: critical
   build:
     description: >-
       Build and lint before publishing. Set to `false` when a previous job already built the
@@ -64,7 +70,10 @@ outputs:
     value: ${{ steps.release.outputs.version }}
   outcome:
     description: "`published`, `already-published`, or `dry-run`."
-    value: ${{ steps.release.outputs.outcome }}
+    value: ${{ steps.announce.outputs.outcome || steps.release.outputs.outcome }}
+  digest:
+    description: The digest that was signed and announced — empty when nothing was pushed.
+    value: ${{ steps.sign.outputs.digest }}
 
 runs:
   using: composite
@@ -81,6 +90,17 @@ runs:
       # Des avertissements, jamais un échec : un SDK en retard n'est pas une raison de refuser
       # une publication, c'est une raison de la voir venir.
       run: portaki ci check
+
+    # Avant le build : le rapport est écrit avant qu'un `build.rs` n'ait tourné. Avec `build:
+    # false`, c'est au job qui a construit de le produire (`audit@v1`) et de le transmettre avec
+    # l'artefact, sous `target/portaki/cargo-audit.json`.
+    - if: inputs.build == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        FAIL_ON: ${{ inputs.audit-fail-on }}
+        REPORT: target/portaki/cargo-audit.json
+      run: bash "$GITHUB_ACTION_PATH/audit/audit.sh"
 
     - if: inputs.build == 'true'
       shell: bash
@@ -115,14 +135,47 @@ runs:
           exit 0
         fi
 
-        # `--skip-build` : le build vient d'avoir lieu et a été linté. Le refaire ici pousserait
-        # un artefact que personne n'a vérifié.
-        portaki publish --skip-build --registry "$REGISTRY" --channel "$CHANNEL" | tee /tmp/portaki-publish
+        # Poussé sans annonce : le registre vérifie la signature à l'annonce, elle doit donc
+        # exister avant. `--skip-build` : le build vient d'avoir lieu et a été linté. Le refaire
+        # ici pousserait un artefact que personne n'a vérifié.
+        portaki publish --skip-build --no-announce --registry "$REGISTRY" --channel "$CHANNEL" | tee /tmp/portaki-publish
         if grep -q "already in the registry" /tmp/portaki-publish; then
           echo "outcome=already-published" >>"$GITHUB_OUTPUT"
         else
-          echo "outcome=published" >>"$GITHUB_OUTPUT"
+          echo "outcome=pushed" >>"$GITHUB_OUTPUT"
         fi
+
+    # Signature sans clé : l'identité est le jeton OIDC de ce job. cosign v3.1.3, la version
+    # que le registre utilise pour vérifier.
+    - if: steps.release.outputs.outcome == 'pushed'
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      with:
+        cosign-release: v3.1.3
+
+    - if: steps.release.outputs.outcome == 'pushed'
+      id: sign
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        AUDIT_REPORT: target/portaki/cargo-audit.json
+        GITHUB_TOKEN: ${{ github.token }}
+      run: bash "$GITHUB_ACTION_PATH/sign/sign.sh"
+
+    # L'annonce relit le tag qu'on vient de signer. Un échec ici laisse l'artefact signé sur
+    # GHCR : relancer le job le repousse à l'identique, le resigne et l'annonce.
+    - if: steps.release.outputs.outcome == 'pushed'
+      id: announce
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PORTAKI_API_URL: ${{ inputs.api-url }}
+        REGISTRY: ${{ inputs.registry }}
+        CHANNEL: ${{ inputs.channel }}
+      run: |
+        set -euo pipefail
+        portaki publish --announce-only --registry "$REGISTRY" --channel "$CHANNEL"
+        echo "outcome=published" >>"$GITHUB_OUTPUT"
 
     # `always()` et non `failure()` : conditionné à l'échec, ce rapport ne pourrait jamais
     # ÉTEINDRE une alerte, et un module réparé garderait la sienne indéfiniment.
@@ -138,7 +191,7 @@ runs:
       env:
         ID: ${{ steps.release.outputs.id }}
         VERSION: ${{ steps.release.outputs.version }}
-        OUTCOME: ${{ steps.release.outputs.outcome }}
+        OUTCOME: ${{ steps.announce.outputs.outcome || steps.release.outputs.outcome }}
         CHANNEL: ${{ inputs.channel }}
       # `always()`, et une seule en-tête de tableau : dans une matrice, chaque job ajoute sa
       # ligne au même résumé. Un résumé qui ne s'écrit qu'en cas de succès laisse justement sans
