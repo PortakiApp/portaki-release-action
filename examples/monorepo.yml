@@ -1,8 +1,8 @@
 # Plusieurs modules dans un dépôt. La matrice est la vôtre : vous seul savez combien de
 # publications lancer en parallèle, dans quel environment, et dans quel ordre.
 #
-# Ce dépôt fournit les outils — `portaki ci modules` répond « lesquels », l'action publie celui
-# qu'on lui désigne. Le code des modules ne tourne que dans `build`, sans droits de publication.
+# Ce dépôt fournit les outils — `portaki ci modules` répond « lesquels », les actions construisent
+# et publient celui qu'on leur désigne. Le code des modules ne tourne que dans `build`, sans droits.
 name: release
 
 on:
@@ -24,11 +24,10 @@ jobs:
           # `ci modules --changed-since` compare deux révisions : un clone superficiel n'en a
           # qu'une, et tout serait reconstruit à chaque run.
           fetch-depth: 0
-      - uses: PortakiApp/portaki-release-action/install@v1
+      - uses: PortakiApp/portaki-release-action/install@v2
       - id: list
         run: portaki ci modules --changed-since "${{ github.event.before }}"
 
-  # Audit, build, lint, tests, emballage : sans `id-token` ni `packages: write`.
   build:
     needs: detect
     if: needs.detect.outputs.any == 'true'
@@ -42,19 +41,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: PortakiApp/portaki-release-action@v1
+      - uses: PortakiApp/portaki-release-action/build@v2
         with:
           working-directory: modules/${{ matrix.module }}
-          dry-run: true
-          report: false
-          summary: false
-      - uses: actions/upload-artifact@v7
-        with:
-          name: module-${{ matrix.module }}
-          path: |
-            modules/${{ matrix.module }}/target/wasm32-unknown-unknown/release/*.wasm
-            modules/${{ matrix.module }}/target/portaki/
-          if-no-files-found: error
+          artifact: module-${{ matrix.module }}
 
   release:
     needs: [detect, build]
@@ -62,12 +52,9 @@ jobs:
     environment: release
     permissions:
       contents: read
-      packages: write
       id-token: write
-    # Un seul job de publication par module à la fois. Deux qui poussent le même module en
-    # parallèle écrasent tour à tour le même tag OCI, et le catalogue finit par référencer un
-    # digest que le tag ne porte plus. `cancel-in-progress: false` : on met en file, on
-    # n'interrompt pas une publication en cours.
+    # Un seul job de publication par module à la fois : deux qui poussent la même version se
+    # disputeraient son tag OCI. `cancel-in-progress: false` : on met en file.
     concurrency:
       group: portaki-release-${{ matrix.module }}
       cancel-in-progress: false
@@ -77,13 +64,8 @@ jobs:
       matrix:
         module: ${{ fromJson(needs.detect.outputs.modules) }}
     steps:
-      # Les sources sont lues, jamais compilées.
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          name: module-${{ matrix.module }}
-          path: modules/${{ matrix.module }}/target
-      - uses: PortakiApp/portaki-release-action@v1
+      - uses: PortakiApp/portaki-release-action@v2
         with:
           working-directory: modules/${{ matrix.module }}
-          build: false
+          artifact: module-${{ matrix.module }}

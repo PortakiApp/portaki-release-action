@@ -1,0 +1,95 @@
+name: Portaki — build a module
+description: Test, build, lint and package one Portaki module, then upload what the release job pushes. No publishing right needed.
+author: Syntax Labs
+
+# Le premier des deux jobs : celui qui exécute le code du module (`build.rs`, ses tests, la
+# batterie de conformité) — donc celui qui ne détient aucun droit de publication. Rien n'est
+# poussé ni annoncé d'ici. Le job à droits, `PortakiApp/portaki-release-action@v2`, télécharge
+# l'artefact et le publie sans rien exécuter du module.
+
+branding:
+  icon: box
+  color: green
+
+inputs:
+  working-directory:
+    description: The module to build — its crate root.
+    default: "."
+  channel:
+    description: The channel it is headed for — `stable` refuses an SDK older than 8.0.0.
+    default: stable
+  cli-version:
+    description: Portaki CLI to install, or `auto` to match the SDK this checkout resolves to.
+    default: auto
+  check:
+    description: Warn about an outdated SDK or a manifest the shell has moved past.
+    default: "true"
+  artifact:
+    description: Name of the uploaded artifact — the release job downloads it by this name. One per module in a matrix.
+    default: portaki-module
+
+outputs:
+  id:
+    description: The module id that was built.
+    value: ${{ steps.build.outputs.id }}
+  version:
+    description: The version that was built.
+    value: ${{ steps.build.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        REQUESTED: ${{ inputs.cli-version }}
+      run: bash "$GITHUB_ACTION_PATH/../install/resolve.sh"
+
+    - id: prebuilt
+      shell: bash
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+      run: bash "$GITHUB_ACTION_PATH/../install/prebuilt.sh"
+
+    # Ce job compile déjà le module : `cargo install` n'y ajoute aucun droit.
+    - if: steps.prebuilt.outputs.installed != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+      run: cargo install portaki-cli --version "$VERSION" --locked --force
+
+    - shell: bash
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+      run: |
+        set -euo pipefail
+        if ! portaki ci build --help >/dev/null 2>&1; then
+          echo "::error::portaki ${VERSION} has no \`ci build\`, which this action needs — raise the portaki-sdk this checkout resolves to, or pin a newer \`cli-version\`."
+          exit 1
+        fi
+
+    - if: inputs.check == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      # Des avertissements, jamais un échec : un SDK en retard se voit venir, il ne bloque rien.
+      run: portaki ci check
+
+    # Tests (batterie de conformité comprise), build --release, lint, changelog, emballage.
+    - id: build
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CHANNEL: ${{ inputs.channel }}
+      run: portaki ci build --channel "$CHANNEL"
+
+    # `upload-artifact` enracine les deux chemins à leur ancêtre commun, `target/` : le job de
+    # publication le télécharge au même endroit.
+    - uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact }}
+        path: |
+          ${{ inputs.working-directory }}/target/wasm32-unknown-unknown/release/*.wasm
+          ${{ inputs.working-directory }}/target/portaki/
+        if-no-files-found: error
+        retention-days: 1

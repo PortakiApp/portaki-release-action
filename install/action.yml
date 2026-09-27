@@ -41,38 +41,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         REQUESTED: ${{ inputs.version }}
-      run: |
-        set -euo pipefail
-        if [ "$REQUESTED" != "auto" ]; then
-          echo "version=${REQUESTED}" >>"$GITHUB_OUTPUT"
-          echo "Portaki CLI pinned to ${REQUESTED}."
-          exit 0
-        fi
-
-        # `Cargo.lock` le plus proche en remontant : un module d'un monorepo partage celui de
-        # la racine. `Cargo.toml` ne suffirait pas — le SDK peut y être déclaré par branche git
-        # ou par chemin, et seul le lock dit ce qui sera compilé.
-        directory="$PWD"
-        lock=""
-        while [ "$directory" != "/" ]; do
-          if [ -f "$directory/Cargo.lock" ]; then lock="$directory/Cargo.lock"; break; fi
-          directory="$(dirname "$directory")"
-        done
-        if [ -z "$lock" ]; then
-          echo "::error::no Cargo.lock found — pass `version:` explicitly"
-          exit 1
-        fi
-
-        resolved="$(awk '
-          /^name = "portaki-sdk"$/ { found = 1; next }
-          found && /^version = / { gsub(/[",]/, "", $3); print $3; exit }
-        ' "$lock")"
-        if [ -z "$resolved" ]; then
-          echo "::error file=${lock#"$PWD"/}::no portaki-sdk in the lockfile — pass \`version:\` explicitly"
-          exit 1
-        fi
-        echo "version=${resolved}" >>"$GITHUB_OUTPUT"
-        echo "Portaki SDK resolves to ${resolved}; installing the matching CLI."
+      run: bash "$GITHUB_ACTION_PATH/resolve.sh"
 
     # Binaire précompilé d'abord : ~2 min de `cargo install` en moins par job. Il sort du seul
     # workflow de release du SDK (aucun code de module n'y tourne) et chaque archive porte sa
