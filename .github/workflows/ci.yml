@@ -61,17 +61,18 @@ jobs:
         run: |
           python3 audit/report.py --self-test
           bash -n audit/audit.sh
-          bash -n sign/sign.sh
+          bash -n install/resolve.sh
+          bash -n install/prebuilt.sh
 
-  # `build: false` ne doit rien exécuter du module dans le job qui détient les droits : ni
-  # `cargo build`, ni `cargo test`, ni donc `build.rs`. Un faux `cargo` qui échoue sur tout sauf
-  # `metadata` (lecture du lock) et `install` (le CLI depuis crates.io) passe devant le vrai ; un
-  # module construit d'abord comme le ferait le job sans droits, puis publié en dry-run.
+  # Le job de publication ne doit rien exécuter du module, ni cargo : ni `cargo build`, ni
+  # `cargo test`, ni donc `build.rs`. `./build` construit un module comme le job sans droits ;
+  # un faux `cargo` qui échoue sur tout passe ensuite devant le vrai, et l'action principale
+  # vérifie l'artefact en dry-run.
   prebuilt:
-    name: build false runs no module code
+    name: release runs no module code
     runs-on: ubuntu-latest
     env:
-      CLI: 8.8.1
+      CLI: 8.10.0
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -81,22 +82,29 @@ jobs:
         with:
           version: ${{ env.CLI }}
 
-      - name: Build a module, as the job without rights does
+      # `portaki init` écrit une fiche d'exemple que la conformité refuse : elle part.
+      - name: Scaffold a module
         run: |
           set -euo pipefail
           portaki init fixture -y
-          cd fixture
-          portaki build --release
+          rm fixture/listing.json
+          (cd fixture && cargo generate-lockfile)
 
-      - name: Shadow cargo with one that refuses to build or test
+      - uses: ./build
+        with:
+          working-directory: fixture
+          cli-version: ${{ env.CLI }}
+          check: "false"
+          artifact: fixture
+
+      - name: Drop the build output and shadow cargo with one that refuses everything
         run: |
           set -euo pipefail
+          rm -rf fixture/target
           shim="$RUNNER_TEMP/cargo-shim"
           mkdir -p "$shim"
-          real="$(command -v cargo)"
           cat >"$shim/cargo" <<EOF
           #!/usr/bin/env bash
-          case "\$1" in metadata|install) exec "$real" "\$@" ;; esac
           echo "cargo \$*" >>"$RUNNER_TEMP/cargo-calls"
           echo "::error::cargo \$* ran in the publishing job"
           exit 97
@@ -108,13 +116,11 @@ jobs:
         uses: ./
         with:
           working-directory: fixture
-          build: false
+          artifact: fixture
           dry-run: true
-          check: false
           report: false
           summary: false
           cli-version: ${{ env.CLI }}
-          cache: "true"
 
       - name: Nothing of the module ran
         env:
@@ -153,7 +159,7 @@ jobs:
             exit 1
           fi
           if [ "$PREBUILT" != "success" ]; then
-            echo "::error::build: false a fini en '$PREBUILT'"
+            echo "::error::le job de publication a fini en '$PREBUILT'"
             exit 1
           fi
           echo "Contrôles verts."

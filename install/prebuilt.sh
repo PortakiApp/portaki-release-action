@@ -2,11 +2,17 @@
 # Installe le binaire `portaki` précompilé de la release `v$VERSION` de portaki-sdk.
 #
 # Sortie `installed=true` quand le binaire est en place (dans le PATH des étapes suivantes),
-# `installed=false` pour laisser `cargo install` prendre le relais. Code non nul uniquement
-# quand l'archive existe mais que sa somme manque ou ne correspond pas : là, rien ne s'exécute.
+# `installed=false` pour laisser `cargo install` prendre le relais. Code non nul quand l'archive
+# existe mais que sa somme manque ou ne correspond pas : là, rien ne s'exécute. Et avec
+# `REQUIRED=true` — le job de publication, qui n'exécute pas cargo —, sur tout ce qui laisserait
+# le relais à `cargo install`.
 set -euo pipefail
 
 skip() {
+  if [ "${REQUIRED:-false}" = "true" ]; then
+    echo "::error::$1 — this job runs no cargo, so it needs the prebuilt CLI. Pin \`cli-version\` to a release that has one."
+    exit 1
+  fi
   echo "$1 — falling back to \`cargo install\`."
   echo "installed=false" >>"$GITHUB_OUTPUT"
   exit 0

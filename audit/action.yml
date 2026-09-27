@@ -2,9 +2,9 @@ name: Portaki — audit dependencies
 description: Run cargo audit (RustSec) on the module's Cargo.lock and write the report its publication will attest.
 author: Syntax Labs
 
-# Pour un dépôt qui construit dans un job et publie dans un autre : ce pas va dans le job qui
-# construit (sans secrets), avant le build. Le rapport voyage avec l'artefact jusqu'au job de
-# publication, qui l'atteste (`sign`). L'action principale l'appelle d'elle-même.
+# L'action principale l'appelle d'elle-même, dans le job de publication : le rapport qu'elle
+# atteste ne passe jamais par le job qui exécute le code du module. Seule, elle sert à un
+# workflow qui veut l'audit sans publier.
 
 branding:
   icon: shield
