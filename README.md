@@ -34,7 +34,7 @@ jobs:
       - uses: PortakiApp/portaki-release-action@v2
 ```
 
-`build@v2` runs the module's tests and conformity suite, builds it for `wasm32`, lints its
+`build@v2` runs the module's tests and conformity suite, builds it for `wasm32`, checks its
 manifest and packages the OCI artifact — without any right to publish — then uploads it. The
 release action downloads that artifact, audits `Cargo.lock`, pushes the artifact to **Portaki's
 OCI repository** with a short-lived push right the registry grants, signs it keylessly with its
@@ -63,7 +63,7 @@ answers *which modules*, and the action releases the one you name. See
 
 | Action | Job | Role |
 |--------|-----|------|
-| `PortakiApp/portaki-release-action/build@v2` | `build` — no rights | Test, build, lint and package the module in `working-directory`, then upload the artifact |
+| `PortakiApp/portaki-release-action/build@v2` | `build` — no rights | Test, build, check and package the module in `working-directory`, then upload the artifact |
 | `PortakiApp/portaki-release-action@v2` | `release` — `id-token: write` | Audit `Cargo.lock`, push the artifact to Portaki's OCI repository, sign it, announce it |
 | `PortakiApp/portaki-release-action/install@v2` | any | Install the Portaki CLI, and nothing else |
 | `PortakiApp/portaki-release-action/audit@v2` | any | Run `cargo audit` on the module's `Cargo.lock` and write the report |
@@ -212,8 +212,9 @@ permissions:
 No publication secret, no registry credential, no signing key. The token proves where it comes
 from; the link registered in the dashboard decides what it may publish — so link the module to
 its repository there before the first run. The `stable` channel additionally requires the
-`environment:` declared in that link; without it the exchange is refused with
-`environment_required`.
+`environment:` declared in that link — `release`, the name the dashboard suggests and the one
+`portaki init` writes; without it the exchange is refused with `environment_required`. Create it
+under the repository's *Settings → Environments* before the first stable release.
 
 ## From v1
 
