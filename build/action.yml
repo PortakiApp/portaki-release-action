@@ -69,12 +69,6 @@ runs:
           exit 1
         fi
 
-    - if: inputs.check == 'true'
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      # Des avertissements, jamais un échec : un SDK en retard se voit venir, il ne bloque rien.
-      run: portaki ci check
-
     # Tests (batterie de conformité comprise), build --release, lint, changelog, emballage.
     - id: build
       shell: bash
@@ -82,6 +76,13 @@ runs:
       env:
         CHANNEL: ${{ inputs.channel }}
       run: portaki ci build --channel "$CHANNEL"
+
+    - if: inputs.check == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      # Après le build : `ci check` lit le manifeste qu'il écrit dans target/portaki/.
+      # Des avertissements, jamais un échec : un SDK en retard se voit venir, il ne bloque rien.
+      run: portaki ci check
 
     # `upload-artifact` enracine les deux chemins à leur ancêtre commun, `target/` : le job de
     # publication le télécharge au même endroit.
