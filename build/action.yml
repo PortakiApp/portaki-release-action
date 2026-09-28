@@ -1,5 +1,5 @@
 name: Portaki — build a module
-description: Test, build, lint and package one Portaki module, then upload what the release job pushes. No publishing right needed.
+description: Test, build, check and package one Portaki module, then upload what the release job pushes. No publishing right needed.
 author: Syntax Labs
 
 # Le premier des deux jobs : celui qui exécute le code du module (`build.rs`, ses tests, la
@@ -69,7 +69,7 @@ runs:
           exit 1
         fi
 
-    # Tests (batterie de conformité comprise), build --release, lint, changelog, emballage.
+    # Tests (batterie de conformité comprise), build --release, contrôle du manifeste, changelog, emballage.
     - id: build
       shell: bash
       working-directory: ${{ inputs.working-directory }}

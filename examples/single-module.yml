@@ -18,7 +18,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: wasm32-unknown-unknown
-      # Tests et batterie de conformité, build, lint, emballage — puis l'artefact.
+      # Tests et batterie de conformité, build, contrôle du manifeste, emballage — puis l'artefact.
       - uses: PortakiApp/portaki-release-action/build@v2
 
   release:
