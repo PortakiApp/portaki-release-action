@@ -69,7 +69,14 @@ runs:
           exit 1
         fi
 
-    # Tests (batterie de conformité comprise), build --release, contrôle du manifeste, changelog, emballage.
+    # La porte de `ci build` est celle de `portaki check` : fmt et clippy en font partie. Ajoutés à
+    # la toolchain que ce dossier résout (`rust-toolchain.toml` du module compris), ici seulement :
+    # le job à droits n'exécute ni cargo ni rustup.
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: rustup component add rustfmt clippy
+
+    # fmt, clippy, tests (batterie de conformité comprise), build --release, manifeste, i18n, emballage.
     - id: build
       shell: bash
       working-directory: ${{ inputs.working-directory }}
