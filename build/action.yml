@@ -22,7 +22,14 @@ inputs:
     description: Portaki CLI to install, or `auto` to match the SDK this checkout resolves to.
     default: auto
   check:
-    description: Warn about an outdated SDK or a manifest the shell has moved past.
+    description: >-
+      Run `portaki ci check` after the build — the gates below, then warnings about an outdated
+      SDK or a manifest the shell has moved past.
+    default: "true"
+  gates:
+    description: >-
+      Fail on what would keep the version from hosts — release notes in every published language,
+      permission reasons, entity columns, the SDK pin. `false` keeps only the warnings.
     default: "true"
   artifact:
     description: Name of the uploaded artifact — the release job downloads it by this name. One per module in a matrix.
@@ -84,12 +91,33 @@ runs:
         CHANNEL: ${{ inputs.channel }}
       run: portaki ci build --channel "$CHANNEL"
 
+    # Après le build : `ci check` lit le manifeste qu'il écrit dans target/portaki/.
+    # Les contrôles font échouer le job — notes de version de chaque langue publiée,
+    # justifications des permissions, colonnes des entités, SDK du lock : sans eux la version
+    # reste en brouillon, ou casse chaque écriture en production, sans que rien ne rougisse.
+    # Le vieillissement reste un avertissement : un SDK en retard se voit venir, il ne bloque rien.
+    # Une CLI antérieure aux contrôles (`--no-gates` inconnu) ne fait que les avertissements : on
+    # le dit, sans échouer.
     - if: inputs.check == 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      # Après le build : `ci check` lit le manifeste qu'il écrit dans target/portaki/.
-      # Des avertissements, jamais un échec : un SDK en retard se voit venir, il ne bloque rien.
-      run: portaki ci check
+      env:
+        GATES: ${{ inputs.gates }}
+        VERSION: ${{ steps.resolve.outputs.version }}
+      run: |
+        set -euo pipefail
+        # Lu d'abord, puis cherché : `grep -q` dans un tube sous `pipefail` peut faire mentir le test.
+        help="$(portaki ci check --help 2>/dev/null || true)"
+        if [[ "$help" != *--no-gates* ]]; then
+          if [ "$GATES" = "true" ]; then
+            echo "::notice::portaki ${VERSION} predates the checks of \`ci check\` (release notes, permission reasons, entity columns, SDK pin) — warnings only. Raise the portaki-sdk this checkout resolves to."
+          fi
+          portaki ci check
+        elif [ "$GATES" = "true" ]; then
+          portaki ci check
+        else
+          portaki ci check --no-gates
+        fi
 
     # `upload-artifact` enracine les deux chemins à leur ancêtre commun, `target/` : le job de
     # publication le télécharge au même endroit.

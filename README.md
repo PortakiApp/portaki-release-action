@@ -35,8 +35,9 @@ jobs:
 ```
 
 `build@v2` runs the same gate as `portaki check` — `cargo fmt --check`, clippy with `-D warnings`,
-the module's tests and conformity suite, the `wasm32` build, the manifest and i18n — then packages
-the OCI artifact and uploads it, without any right to publish. It adds `rustfmt` and `clippy` to
+the module's tests and conformity suite, the `wasm32` build, the manifest and i18n — then
+[`portaki ci check`](#the-checks-after-the-build), then packages the OCI artifact and uploads it,
+without any right to publish. It adds `rustfmt` and `clippy` to
 the toolchain the module resolves to. The
 release action downloads that artifact, audits `Cargo.lock`, pushes the artifact to **Portaki's
 OCI repository** with a short-lived push right the registry grants, signs it keylessly with its
@@ -82,7 +83,8 @@ answers *which modules*, and the action releases the one you name. See
 | `working-directory` | `.` | The module — its crate root |
 | `channel` | `stable` | The channel it is headed for — `stable` refuses an SDK older than 8.0.0 |
 | `cli-version` | `auto` | Exact CLI version, or the SDK version this checkout resolves to |
-| `check` | `true` | Warn about an outdated SDK or a manifest the shell has moved past |
+| `check` | `true` | Run `portaki ci check` after the build — the gates, then warnings about an outdated SDK or a manifest the shell has moved past |
+| `gates` | `true` | Fail on what would keep the version from hosts — see [the checks](#the-checks-after-the-build); `false` keeps only the warnings |
 | `artifact` | `portaki-module` | Name of the uploaded artifact — one per module in a matrix |
 
 Release (the main action):
@@ -105,6 +107,24 @@ Outputs: `id`, `version`, `outcome` (`published`, `draft`, `already-published`, 
 The run report runs on **every** outcome, not only failures: conditioned on failure it could
 never *clear* an alert, and a module that has been fixed would keep its own indefinitely. It
 stores nothing on your side, and a report that fails never fails the job.
+
+## The checks after the build
+
+A version can publish without a hitch and still never reach a host: the registry keeps a stable
+version as a draft while its notes or its permission reasons miss a language of its listing, and
+an entity field without a column fails every write in production. None of it turns a run red on
+its own. `portaki ci check` does, in the build job, before anything is pushed — every failure is
+annotated on its file before the step fails:
+
+| Check | Fails when |
+|-------|-----------|
+| Release notes | The declared version's section of `CHANGELOG.<lang>.md` (`CHANGELOG.md` in English) is missing for a language of `listing.json`'s `publishedLangs` (and `fr`, always), has more than 5 lines, a line over 160 characters, or a line that reads like a commit message. A version that only bumps dependencies passes: it gets the standard line. |
+| Permission reasons | A permission or `reveal:` key of the built manifest has no text for one of those languages in `permission-reasons.json` |
+| Entity columns | A field of a `#[portaki_sdk::entity]` has no column in `db/migrations/*.sql` — add one, and raise the entity's `schema_version` |
+| SDK pin | The `portaki-sdk` your `Cargo.lock` resolves is not the CLI's version — with `cli-version: auto` it always is |
+
+The same command runs locally after `portaki build`. `gates: false` keeps only the warnings. A
+CLI older than these checks runs the warnings alone, with a notice saying so.
 
 ## How the CLI version is chosen
 
@@ -192,6 +212,14 @@ advisories — `unmaintained`, `unsound`, `notice`, `yanked` — never fail a re
 Two jobs publishing the same version at once overwrite the same OCI tag in turn. The CLI refuses
 to push a version the registry already holds, which covers a re-run — but two jobs starting
 together both look before either announces.
+
+A re-run of a release that already went through — cancelled after its announcement, or replayed
+from the dispatch — ends green with `outcome: already-published`, **only if the registry holds
+the artifact just built**: the CLI reads its manifest from Portaki's OCI repository and compares
+config and layers digest by digest. Other content under the same version fails the job — « la
+version existe déjà avec un autre contenu — publie une nouvelle version ». A "re-run failed jobs"
+reuses the build job's artifact, so it compares equal; a full re-run rebuilds the wasm, and
+passes only if that build is reproducible.
 
 That last case belongs to the workflow, so both examples set it:
 
