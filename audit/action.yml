@@ -17,7 +17,7 @@ inputs:
   fail-on:
     description: >-
       Lowest severity that fails the step — `critical`, `high`, `medium`, `low`, or `none`.
-      Informational advisories (unmaintained, unsound, yanked) only warn.
+      Informational advisories (unmaintained, unsound, notice) only warn.
     default: critical
   report:
     description: Where to write the report, relative to `working-directory`.

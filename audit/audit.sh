@@ -48,13 +48,17 @@ fi
 tar -xzf "$work/$archive" -C "$work"
 binary="$work/cargo-audit-${target}-v${VERSION}/cargo-audit"
 
+# `--no-yanked` : la vérification des crates retirées passe par l'index de crates.io, dont la
+# bibliothèque lance `cargo -V` — dans le répertoire du module, donc sous son
+# `rust-toolchain.toml`, dans le job à droits. Pas de cargo ici, même pour un numéro de version.
+#
 # Code de sortie ignoré : `cargo audit` rend 1 dès qu'il trouve quelque chose, et le seuil est
 # le nôtre. Un JSON absent ou illisible, lui, fait échouer plus bas — une base d'avis
 # injoignable ne passe pas pour un module sain.
-"$binary" audit --json --file "$lock" >"$work/raw.json" || true
+"$binary" audit --no-yanked --json --file "$lock" >"$work/raw.json" || true
 if ! python3 -c 'import json, sys; json.load(open(sys.argv[1]))["vulnerabilities"]' "$work/raw.json" 2>/dev/null; then
   echo "::error::cargo audit produced no report for ${lock} — see the step log"
-  "$binary" audit --file "$lock" || true
+  "$binary" audit --no-yanked --file "$lock" || true
   exit 1
 fi
 

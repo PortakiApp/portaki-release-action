@@ -205,7 +205,8 @@ with the artifact; the registry keeps its summary, shown to reviewers and to the
 Severity comes from the advisory's CVSS 3.x vector: `critical` ≥ 9.0, `high` ≥ 7.0, `medium` ≥
 4.0, `low` below. `audit-fail-on` (default `critical`) is the lowest severity that fails the
 release. An advisory without a CVSS 3 vector is `unknown` and only warns. Informational
-advisories — `unmaintained`, `unsound`, `notice`, `yanked` — never fail a release.
+advisories — `unmaintained`, `unsound`, `notice` — never fail a release. Yanked crates are not
+checked: that lookup runs `cargo -V`, and the release job runs no cargo.
 
 ## One publication at a time
 

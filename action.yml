@@ -42,7 +42,7 @@ inputs:
   audit-fail-on:
     description: >-
       Lowest `cargo audit` severity that fails the release — `critical`, `high`, `medium`, `low`,
-      or `none`. Informational advisories (unmaintained, unsound, yanked) only warn. The report
+      or `none`. Informational advisories (unmaintained, unsound, notice) only warn. The report
       is attested with the artifact either way.
     default: critical
   dry-run:
