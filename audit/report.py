@@ -5,7 +5,7 @@
 
 Le seuil (`critical`, `high`, `medium`, `low` ou `none`) dit à partir de quelle gravité une
 vulnérabilité fait échouer : code de sortie 1, rapport écrit quand même. Les avis
-informationnels (`unmaintained`, `unsound`, `notice`, `yanked`) avertissent, jamais n'échouent.
+informationnels (`unmaintained`, `unsound`, `notice`) avertissent, jamais n'échouent.
 
 La gravité vient du vecteur CVSS 3.x de l'avis RustSec. Un avis sans vecteur (ou en CVSS 4,
 que ce script ne calcule pas) est de gravité `unknown` : il avertit, faute de pouvoir dire
