@@ -1,19 +1,194 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>PortakiApp/renovate-config"
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "group:recommended",
+    "helpers:pinGitHubActionDigests"
   ],
+  "labels": [
+    "dependencies"
+  ],
+  "timezone": "Europe/Paris",
+  "schedule": [
+    "before 8am on monday"
+  ],
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "rebaseWhen": "behind-base-branch",
+  "configMigration": true,
+  "dependencyDashboardAutoclose": true,
+  "semanticCommitScope": "deps",
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "description": "Un correctif de securite ne fait pas la queue. Ni l'attente de trois jours — c'est justement la version qu'on veut tout de suite — ni le lundi, ni la limite de PR concurrentes. Et il fusionne seul : rester expose parce que personne n'a relu une PR est le risque le plus courant des deux.",
+    "labels": [
+      "dependencies",
+      "security"
+    ],
+    "schedule": [
+      "at any time"
+    ],
+    "minimumReleaseAge": null,
+    "prCreation": "immediate",
+    "automerge": true,
+    "automergeType": "pr",
+    "platformAutomerge": true,
+    "automergeStrategy": "rebase",
+    "packageRules": [
+      {
+        "description": "Une majeure reste une majeure, meme quand elle corrige une faille. `maplibre-gl ^5 -> ^6` est arrive etiquete [security] : le fusionner seul aurait fait passer un changement de contrat par la porte de la securite. La faille se corrige vite, la migration se relit.",
+        "matchUpdateTypes": [
+          "major"
+        ],
+        "automerge": false,
+        "labels": [
+          "dependencies",
+          "security",
+          "breaking"
+        ]
+      },
+      {
+        "description": "Meme raison pour une mineure en 0.x : semver ne s'applique pas avant 1.0, et l'etiquette [security] ne rend pas le changement compatible.",
+        "matchCurrentVersion": "/^0\\./",
+        "matchUpdateTypes": [
+          "minor"
+        ],
+        "automerge": false,
+        "labels": [
+          "dependencies",
+          "security",
+          "breaking"
+        ]
+      }
+    ]
+  },
+  "lockFileMaintenance": {
+    "description": "Reprend l'arbre transitif complet, la ou dorment les CVE que personne ne declare — celles qu'on connait arrivent par vulnerabilityAlerts, a toute heure. Automerge : le verrou change, aucun manifeste ne bouge. Mensuelle, et rafraichie seulement dans sa fenetre (updateNotScheduled: false) : une PR de verrou qui echoue restait ouverte et se rebasait apres chaque merge — sur portaki-web, la PR #24, ouverte depuis juillet, a relance la CI 117 fois en septembre, 117 echecs.",
+    "enabled": true,
+    "schedule": [
+      "* 0-4 1 * *"
+    ],
+    "updateNotScheduled": false,
+    "automerge": true,
+    "automergeType": "pr",
+    "platformAutomerge": true,
+    "automergeStrategy": "rebase"
+  },
   "packageRules": [
     {
+      "description": "Patch, pin et digest passent seuls si le check requis est vert. Ce sont les montees ou le contrat de l'API ne change pas : les relire une par une coute une attention qu'on n'a plus pour les majors.",
+      "matchUpdateTypes": [
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "automergeStrategy": "rebase"
+    },
+    {
+      "description": "Les mineures de l'outillage de dev passent aussi : linters, formatteurs, runners de test. Rien de ce qu'elles touchent n'atteint la production — si elles cassent, elles cassent la CI, qui est justement le garde-fou.",
+      "matchDepTypes": [
+        "devDependencies",
+        "dev-dependencies",
+        "build-dependencies"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "automergeStrategy": "rebase"
+    },
+    {
+      "description": "Aucune majeure ne passe seule, jamais, quel que soit l'ecosysteme. L'etiquette dit pourquoi la PR attend.",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "breaking"
+      ]
+    },
+    {
+      "description": "Les versions 0.x n'ont pas de contrat : une mineure y casse comme une majeure ailleurs. Semver les traite comme mineures, nous non.",
+      "matchCurrentVersion": "/^0\\./",
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "breaking"
+      ]
+    },
+    {
+      "description": "GitHub Actions — un lot hebdomadaire. Une action compromise s'execute avec les droits du workflow, souvent `packages: write` et `id-token: write` ; les digests sont epingles par `helpers:pinGitHubActionDigests`, donc une montee est un changement de digest qu'on voit.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions",
+      "schedule": [
+        "before 10am on monday"
+      ]
+    },
+    {
+      "description": "Les actions officielles GitHub passent seules en mineur : meme editeur que la plateforme, et l'epinglage par digest rend la substitution visible.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchPackageNames": [
+        "actions/**",
+        "github/**"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "automergeStrategy": "rebase"
+    },
+    {
+      "description": "Images de base Docker — un lot, jamais d'automerge. Une image porte une distribution entiere : ce qui change entre deux tags n'est decrit nulle part.",
+      "matchManagers": [
+        "dockerfile",
+        "docker-compose"
+      ],
+      "groupName": "Docker base images",
+      "automerge": false,
+      "schedule": [
+        "before 10am on monday"
+      ]
+    },
+    {
       "description": "`PortakiApp/portaki-release-action/install@v1` pointe ce depot lui-meme. Un robot qui la ferait monter ferait tourner l'action contre une version d'elle-meme que personne n'a publiee.",
-      "matchManagers": ["github-actions"],
-      "matchPackageNames": ["PortakiApp/portaki-release-action{/,}**"],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchPackageNames": [
+        "PortakiApp/portaki-release-action{/,}**"
+      ],
       "enabled": false
     },
     {
       "description": "Ici, meme une action officielle ne passe pas seule. Ce depot s'execute dans les workflows d'AUTRES depots, avec leurs droits : le rayon d'explosion n'est pas le notre, et il n'y a pas de check requis pour le rattraper.",
-      "matchManagers": ["github-actions"],
-      "matchPackageNames": ["actions/**", "github/**"],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchPackageNames": [
+        "actions/**",
+        "github/**"
+      ],
       "automerge": false
     }
   ]
