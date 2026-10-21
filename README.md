@@ -6,6 +6,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/PortakiApp/portaki-release-action/actions/workflows/ci.yml"><img src="https://github.com/PortakiApp/portaki-release-action/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
   <a href="https://github.com/PortakiApp/portaki-sdk"><img src="https://img.shields.io/badge/SDK-portaki--sdk-7C3AED" alt="portaki-sdk"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License Apache-2.0"></a>
   <a href="https://portaki.app"><img src="https://img.shields.io/badge/site-portaki.app-f59e0b" alt="portaki.app"></a>
@@ -87,6 +88,8 @@ answers *which modules*, and the action releases the one you name. See
 | `gates` | `true` | Fail on what would keep the version from hosts — see [the checks](#the-checks-after-the-build); `false` keeps only the warnings |
 | `artifact` | `portaki-module` | Name of the uploaded artifact — one per module in a matrix |
 
+Outputs: `id`, `version` — of the module that was built.
+
 Release (the main action):
 
 | Input | Default | Meaning |
@@ -103,6 +106,26 @@ Release (the main action):
 
 Outputs: `id`, `version`, `outcome` (`published`, `draft`, `already-published`, `dry-run`,
 `failed`), `digest` and `reference` (`oci://<host>/modules/<id>@<digest>`, as announced).
+
+`install`:
+
+| Input | Default | Meaning |
+|-------|---------|---------|
+| `working-directory` | `.` | Directory to resolve `Cargo.lock` from |
+| `version` | `auto` | Exact CLI version, or the SDK version this checkout resolves to |
+| `cache` | `true` | Cache the CLI compiled from crates.io, keyed on its version — set `false` in a job that holds publishing rights |
+
+Output: `version`, the CLI version installed.
+
+`audit`:
+
+| Input | Default | Meaning |
+|-------|---------|---------|
+| `working-directory` | `.` | The module — its nearest `Cargo.lock` is audited |
+| `fail-on` | `critical` | Lowest severity that fails the step — `critical`, `high`, `medium`, `low` or `none` |
+| `report` | `target/portaki/cargo-audit.json` | Where to write the report, relative to `working-directory` |
+
+Output: `report`, the report's absolute path.
 
 The run report runs on **every** outcome, not only failures: conditioned on failure it could
 never *clear* an alert, and a module that has been fixed would keep its own indefinitely. It
@@ -145,8 +168,8 @@ cargo, since a module's `rust-toolchain.toml` or `.cargo/config.toml` could redi
 2. **From crates.io** — `cargo install portaki-cli --version <version> --locked`, when the release
    has no binary (SDK versions released before the binaries existed), the runner has no supported
    target, `cli-version` is a range rather than an exact version, the download fails, or the
-   binary does not start (a runner image older than the build's glibc). The
-   [cache](#the-cache) applies to this path only.
+   binary does not start (a runner image older than the build's glibc). `build@v2` does not
+   cache this binary; `install@v2` does, through its `cache` input.
 
 An archive whose `.sha256` is missing or does not match **fails the step**: the binary is never
 run, and there is no silent fallback that would hide a tampered release.
@@ -160,7 +183,7 @@ With an older one each action says so in one line — raise the SDK your module 
 pin `cli-version`.
 
 > One step reads the lockfile in shell, because nothing is installed yet. It duplicates what
-> `portaki ci sdk-version` does properly — so the step right after the install compares the two
+> `portaki ci sdk-version` does properly — so `install@v2` compares the two after installing
 > and warns if they disagree. The duplication is guarded by an assertion, not by trust.
 
 ## Where the artifact goes, and how it is signed
@@ -237,7 +260,7 @@ On the `release` job only — the `build` job needs none of them:
 ```yaml
 permissions:
   contents: read
-  id-token: write     # le droit de push, l'annonce et l'identité qui signe
+  id-token: write     # the push right, the announcement and the signing identity
 ```
 
 No publication secret, no registry credential, no signing key. The token proves where it comes
