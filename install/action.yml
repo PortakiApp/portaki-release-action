@@ -59,7 +59,7 @@ runs:
     # une ancienne majeure ici imposerait l'avertissement a tous ceux qui nous utilisent.
     - if: inputs.cache == 'true' && steps.prebuilt.outputs.installed != 'true'
       id: cached
-      uses: actions/cache/restore@v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ~/.cargo/bin/portaki
         # Sur la version, et non sur le tip d'une branche : le cache ne tourne que lorsque le
@@ -80,7 +80,7 @@ runs:
     - if: >-
         inputs.cache == 'true' && steps.prebuilt.outputs.installed != 'true'
         && steps.cached.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v6
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ~/.cargo/bin/portaki
         key: ${{ steps.cached.outputs.cache-primary-key }}

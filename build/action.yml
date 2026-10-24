@@ -121,7 +121,7 @@ runs:
 
     # `upload-artifact` enracine les deux chemins à leur ancêtre commun, `target/` : le job de
     # publication le télécharge au même endroit.
-    - uses: actions/upload-artifact@v7
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
         name: ${{ inputs.artifact }}
         path: |
