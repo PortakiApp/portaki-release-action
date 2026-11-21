@@ -18,7 +18,9 @@
   "prHourlyLimit": 2,
   "rebaseWhen": "behind-base-branch",
   "configMigration": true,
-  "dependencyDashboardAutoclose": true,
+  "dependencyDashboard": {
+    "autoclose": true
+  },
   "semanticCommitScope": "deps",
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
